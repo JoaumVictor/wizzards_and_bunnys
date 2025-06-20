@@ -31,8 +31,10 @@ Este é um joguinho simples que:
 │  ├─ capa_1.png
 │  ├─ capa_2.png
 │  └─ capa_3.png
+├─ game_audio/
+│  ├─ ...
 ├─ index.html
-├─ game.html         # (sua implementação do jogo vai aqui)
+├─ game_final.html
 └─ README.md
 ```
 
