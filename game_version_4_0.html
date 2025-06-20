@@ -1,0 +1,1884 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>Wizard Platformer: Boss & Pets Update - Adjustments</title>
+    <style>
+      body {
+        margin: 0;
+        background-color: #121212;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        height: 100vh;
+        overflow: hidden;
+      }
+      canvas {
+        border: 1px solid #333;
+        background-color: #1e1e1e;
+      }
+      #upgradeScreen {
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        background-color: rgba(
+          10,
+          10,
+          20,
+          0.92 /* Darker, bluer upgrade screen */
+        );
+        color: white;
+        padding: 25px;
+        border: 2px solid #778899; /* LightSlateGray border */
+        border-radius: 12px;
+        display: none;
+        flex-direction: column;
+        align-items: center;
+        font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif; /* Nicer font */
+        z-index: 100;
+        box-shadow: 0 0 20px rgba(100, 130, 220, 0.4);
+      }
+      #upgradeScreen h2 {
+        margin-top: 0;
+        color: #add8e6;
+      } /* LightBlue title */
+      .upgrade-option {
+        background-color: #333a45;
+        border: 1px solid #5c677a;
+        padding: 12px 18px;
+        margin: 10px 0;
+        cursor: pointer;
+        border-radius: 6px;
+        width: 320px;
+        text-align: left;
+        transition: background-color 0.2s ease, transform 0.1s ease;
+      }
+      .upgrade-option:hover {
+        background-color: #4a5463;
+        transform: scale(1.02);
+      }
+      .upgrade-name {
+        font-weight: bold;
+        font-size: 1.15em;
+        color: #e0e0ff;
+      }
+      .upgrade-desc {
+        font-size: 0.9em;
+        color: #b0c4de;
+        margin-top: 4px;
+        display: block;
+      } /* LightSteelBlue */
+      #gameOverScreen {
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        background-color: rgba(30, 0, 0, 0.92);
+        color: white;
+        padding: 30px;
+        border: 2px solid #ff6347; /* Tomato border */
+        border-radius: 10px;
+        display: none;
+        flex-direction: column;
+        align-items: center;
+        font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+        z-index: 100;
+        text-align: center;
+        box-shadow: 0 0 20px rgba(255, 60, 60, 0.5);
+      }
+      #gameOverScreen h2 {
+        color: #ff7f50;
+      } /* Coral */
+      #gameOverScreen button {
+        padding: 12px 25px;
+        font-size: 1.05em;
+        margin-top: 25px;
+        cursor: pointer;
+        background-color: #3cb371; /* MediumSeaGreen */
+        border: none;
+        color: white;
+        border-radius: 6px;
+        transition: background-color 0.2s ease;
+      }
+      #gameOverScreen button:hover {
+        background-color: #2e8b57;
+      } /* SeaGreen */
+      #specialAbilityBarContainer {
+        position: absolute;
+        bottom: 10px;
+        left: 50%;
+        transform: translateX(-50%);
+        width: 300px;
+        height: 20px;
+        background-color: rgba(0, 0, 0, 0.5);
+        border: 2px solid #555;
+        border-radius: 5px;
+        z-index: 50;
+      }
+      #specialAbilityBarFill {
+        width: 0%;
+        height: 100%;
+        background-color: #ffff00; /* Yellow */
+        border-radius: 3px;
+        transition: width 0.1s linear;
+      }
+      #specialAbilityBarText {
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        color: white;
+        font-size: 12px;
+        font-family: "Segoe UI", sans-serif;
+        text-shadow: 1px 1px 1px black;
+      }
+    </style>
+  </head>
+  <body>
+    <canvas id="gameCanvas"></canvas>
+    <div id="upgradeScreen">
+      <h2>Level Up! Choose an Upgrade:</h2>
+      <div id="upgradeOptionsContainer"></div>
+    </div>
+    <div id="gameOverScreen">
+      <h2>Game Over</h2>
+      <p id="finalScore">Score: 0</p>
+      <p id="finalTime">Time Survived: 0s</p>
+      <button onclick="restartGame()">Restart</button>
+    </div>
+    <div id="specialAbilityBarContainer">
+      <div id="specialAbilityBarFill"></div>
+      <div id="specialAbilityBarText">READY!</div>
+    </div>
+
+    <script>
+      const canvas = document.getElementById("gameCanvas");
+      const ctx = canvas.getContext("2d");
+      const upgradeScreen = document.getElementById("upgradeScreen");
+      const upgradeOptionsContainer = document.getElementById(
+        "upgradeOptionsContainer"
+      );
+      const gameOverScreen = document.getElementById("gameOverScreen");
+      const finalScoreDisplay = document.getElementById("finalScore");
+      const finalTimeDisplay = document.getElementById("finalTime");
+      const specialAbilityBarFill = document.getElementById(
+        "specialAbilityBarFill"
+      );
+      const specialAbilityBarText = document.getElementById(
+        "specialAbilityBarText"
+      );
+
+      canvas.width = 800;
+      canvas.height = 600;
+
+      const GROUND_HEIGHT = canvas.height - 50;
+      const ENEMY_STOP_Y_LINE = canvas.height * 0.38;
+      const BLOCK_SPAWN_MIN_Y = canvas.height * 0.5;
+      const BLOCK_SPAWN_MAX_Y = canvas.height * 0.65;
+
+      let player,
+        enemies,
+        projectiles,
+        blocks,
+        floatingTexts,
+        terrainPlatforms,
+        backgroundElements,
+        pets,
+        activeBoss;
+      let keys = {};
+      let mouse = { x: 0, y: 0, down: false };
+      let score = 0,
+        gameTime = 0,
+        gameTimeSurvived = 0,
+        enemySpawnTimer = 0,
+        blockSpawnTimer = 0;
+      let enemySpawnInterval = 3500, // Interval for trying to spawn if below cap
+        blockSpawnInterval = 15000;
+      let gameState = "playing";
+      let deltaTime = 0,
+        lastTime = 0;
+      let screenShakeMagnitude = 0,
+        screenShakeDuration = 0,
+        screenFlashAlpha = 0,
+        screenFlashDuration = 0;
+
+      let currentMaxEnemies = 3; // NEW: Max enemies on screen for normal waves
+
+      const allUpgrades = [
+        {
+          name: "Catalyst",
+          description: "+2 Projectile Damage",
+          apply: (p) => (p.projectileDamage += 2),
+        },
+        {
+          name: "Eyesight",
+          description: "+5% Critical Chance",
+          apply: (p) => (p.critChance = Math.min(1, p.critChance + 0.05)),
+        },
+        {
+          name: "Growth",
+          description: "+20 Max HP",
+          apply: (p) => {
+            p.maxHp += 20;
+            p.hp = Math.min(p.hp + 20, p.maxHp);
+          },
+        },
+        {
+          name: "Impulse",
+          description: "+25% Jump Height",
+          apply: (p) => (p.jumpStrength *= 1.25),
+        },
+        {
+          name: "Renew",
+          description: "Heal to Full HP",
+          apply: (p) => (p.hp = p.maxHp),
+        },
+        {
+          name: "Resist",
+          description: "+5% Defense",
+          apply: (p) => (p.defense = Math.min(0.75, p.defense + 0.05)),
+        },
+        {
+          name: "Resonance",
+          description: "+15% Attack Speed",
+          apply: (p) =>
+            (p.attackSpeedCooldown = Math.max(
+              50,
+              p.attackSpeedCooldown * 0.85
+            )),
+        },
+        {
+          name: "Souls",
+          description: "1% Chance +5 XP Soul on Kill",
+          apply: (p) => (p.soulChance += 0.01),
+        },
+        {
+          name: "Stability",
+          description: "Projectiles survive 1 more hit",
+          apply: (p) => p.projectileHits++,
+        },
+        {
+          name: "Swift",
+          description: "+15% Movement Speed",
+          apply: (p) => (p.moveSpeed *= 1.15),
+        },
+        {
+          name: "Charge",
+          description: "+20% Projectile Size",
+          apply: (p) => (p.projectileSizeMultiplier += 0.2),
+        },
+        {
+          name: "Cloak",
+          description: "+20% Invulnerability Duration",
+          apply: (p) => (p.invincibilityDuration *= 1.2),
+        },
+        {
+          name: "Gush",
+          description: "+1 Extra Jump",
+          apply: (p) => p.maxJumps++,
+        },
+        {
+          name: "Leech",
+          description: "Gain 2% Life Steal",
+          apply: (p) => (p.lifeSteal += 0.02),
+        },
+        {
+          name: "Orb",
+          description: "5% Chance +5 HP Orb on Kill",
+          apply: (p) => (p.healingOrbChance += 0.05),
+        },
+        {
+          name: "Immortal",
+          description: "1-Time Revive (50% HP)",
+          apply: (p) => {
+            if (!p.hasRevive) p.hasRevive = true;
+          },
+        },
+        {
+          name: "Appraisal",
+          description: "+1 Upgrade Choice",
+          apply: (p) => p.upgradeChoices++,
+        },
+      ];
+      let availableUpgrades = [...allUpgrades];
+
+      class Entity {
+        constructor(x, y, w, h, c) {
+          this.x = x;
+          this.y = y;
+          this.width = w;
+          this.height = h;
+          this.color = c;
+          this.vx = 0;
+          this.vy = 0;
+        }
+        draw(ctx) {
+          ctx.fillStyle = this.color;
+          ctx.fillRect(this.x, this.y, this.width, this.height);
+        }
+        update(dt) {
+          this.x += this.vx * dt;
+          this.y += this.vy * dt;
+        }
+      }
+
+      class Player extends Entity {
+        constructor(x, y) {
+          super(x, y, 22, 42, "#4682B4");
+          this.staffColor = "#8B4513";
+          this.staffLength = 45;
+          this.staffWidth = 5;
+          this.hp = 100;
+          this.maxHp = 100;
+          this.xp = 0;
+          this.maxXp = 100;
+          this.level = 1;
+          this.score = 0;
+          this.moveSpeed = 250;
+          this.jumpStrength = 450;
+          this.gravity = 1000;
+          this.onGround = false;
+          this.jumpsLeft = 1;
+          this.maxJumps = 1;
+          this.lastY = this.y;
+          this.shootCooldown = 0;
+          this.attackSpeedCooldown = 300;
+          this.projectileDamage = 10;
+          this.projectileSpeed = 500;
+          this.projectileSizeMultiplier = 1.0;
+          this.projectileHits = 1;
+          this.isInvincible = false;
+          this.invincibilityTimer = 0;
+          this.invincibilityDuration = 500;
+          this.critChance = 0.05;
+          this.defense = 0;
+          this.soulChance = 0;
+          this.lifeSteal = 0;
+          this.healingOrbChance = 0;
+          this.hasRevive = false;
+          this.upgradeChoices = 3;
+          this.specialAbilityCharge = 0;
+          this.specialAbilityMaxCharge = 20000;
+          this.specialAbilityReady = false;
+        }
+        update(dtSeconds) {
+          this.lastY = this.y;
+          this.vx = 0;
+          if (keys["a"]) this.vx = -this.moveSpeed;
+          if (keys["d"]) this.vx = this.moveSpeed;
+          this.x += this.vx * dtSeconds;
+          if (!this.onGround) this.vy += this.gravity * dtSeconds;
+          this.y += this.vy * dtSeconds;
+          let onAnySurface = false;
+          if (this.y + this.height >= GROUND_HEIGHT && this.vy >= 0) {
+            this.y = GROUND_HEIGHT - this.height;
+            this.vy = 0;
+            onAnySurface = true;
+          }
+          for (const plat of terrainPlatforms) {
+            const playerBottom = this.y + this.height;
+            const playerLastBottom = this.lastY + this.height;
+            if (
+              this.x + this.width > plat.x &&
+              this.x < plat.x + plat.width &&
+              playerLastBottom <= plat.y &&
+              playerBottom >= plat.y &&
+              this.vy >= 0
+            ) {
+              this.y = plat.y - this.height;
+              this.vy = 0;
+              onAnySurface = true;
+              break;
+            }
+          }
+          if (onAnySurface) {
+            this.onGround = true;
+            this.jumpsLeft = this.maxJumps;
+          } else {
+            this.onGround = false;
+          }
+          if (this.x < 0) this.x = 0;
+          if (this.x + this.width > canvas.width)
+            this.x = canvas.width - this.width;
+          if (this.shootCooldown > 0) this.shootCooldown -= dtSeconds * 1000;
+          if (
+            mouse.down &&
+            this.shootCooldown <= 0 &&
+            gameState === "playing"
+          ) {
+            this.shoot();
+            this.shootCooldown = this.attackSpeedCooldown;
+          }
+          if (this.isInvincible) {
+            this.invincibilityTimer -= dtSeconds * 1000;
+            if (this.invincibilityTimer <= 0) this.isInvincible = false;
+          }
+          if (!this.specialAbilityReady) {
+            this.specialAbilityCharge += dtSeconds * 1000;
+            if (this.specialAbilityCharge >= this.specialAbilityMaxCharge) {
+              this.specialAbilityCharge = this.specialAbilityMaxCharge;
+              this.specialAbilityReady = true;
+            }
+          }
+          if (player) {
+            updateSpecialAbilityUI(
+              this.specialAbilityCharge / this.specialAbilityMaxCharge,
+              this.specialAbilityReady
+            );
+          }
+        }
+        draw(ctx) {
+          const drawPlayer = () => {
+            const centerX = this.x + this.width / 2;
+            const bottomY = this.y + this.height;
+            const robeHeight = this.height * 0.7;
+            const robeTopWidth = this.width * 0.8;
+            const robeBottomWidth = this.width;
+            const robeTopY = bottomY - robeHeight;
+            ctx.fillStyle = this.color;
+            ctx.beginPath();
+            ctx.moveTo(centerX - robeBottomWidth / 2, bottomY);
+            ctx.lineTo(centerX + robeBottomWidth / 2, bottomY);
+            ctx.lineTo(centerX + robeTopWidth / 2, robeTopY);
+            ctx.lineTo(centerX - robeTopWidth / 2, robeTopY);
+            ctx.closePath();
+            ctx.fill();
+            const headRadius = this.width * 0.3;
+            const headCenterY = robeTopY - headRadius * 0.8;
+            ctx.fillStyle = "#FFE4C4";
+            ctx.beginPath();
+            ctx.arc(centerX, headCenterY, headRadius, 0, Math.PI * 2);
+            ctx.fill();
+            const hatBaseRadius = headRadius * 1.3;
+            const hatHeight = this.height * 0.5;
+            const hatTipY = headCenterY - headRadius - hatHeight;
+            const hatBaseY = headCenterY - headRadius * 0.5;
+            ctx.fillStyle = "#6A0DAD";
+            ctx.beginPath();
+            ctx.moveTo(centerX, hatTipY);
+            ctx.lineTo(centerX - hatBaseRadius, hatBaseY);
+            ctx.lineTo(centerX + hatBaseRadius, hatBaseY);
+            ctx.closePath();
+            ctx.fill();
+            ctx.fillStyle = "#FFD700";
+            ctx.fillRect(
+              centerX - hatBaseRadius,
+              hatBaseY - 2,
+              hatBaseRadius * 2,
+              4
+            );
+          };
+          if (
+            this.isInvincible &&
+            Math.floor(this.invincibilityTimer / 100) % 2 === 0
+          ) {
+          } else {
+            drawPlayer();
+          }
+          const staffVisualX = this.x + this.width / 2;
+          const staffVisualY = this.y + this.height * 0.6;
+          const angle = Math.atan2(
+            mouse.y - staffVisualY,
+            mouse.x - staffVisualX
+          );
+          ctx.save();
+          ctx.translate(staffVisualX, staffVisualY);
+          ctx.rotate(angle);
+          ctx.fillStyle = this.staffColor;
+          ctx.fillRect(
+            0,
+            -this.staffWidth / 2,
+            this.staffLength,
+            this.staffWidth
+          );
+          ctx.fillStyle = "#FFD700";
+          ctx.beginPath();
+          ctx.arc(this.staffLength, 0, this.staffWidth * 1.2, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.restore();
+        }
+        jump() {
+          if (this.jumpsLeft > 0) {
+            this.vy = -this.jumpStrength;
+            this.onGround = false;
+            this.jumpsLeft--;
+          }
+        }
+        shoot() {
+          const pX = this.x + this.width / 2,
+            pY = this.y + this.height / 2,
+            ang = Math.atan2(mouse.y - pY, mouse.x - pX),
+            pvx = Math.cos(ang) * this.projectileSpeed,
+            pvy = Math.sin(ang) * this.projectileSpeed;
+          let dmg = this.projectileDamage,
+            iC = 0;
+          if (Math.random() < this.critChance) {
+            dmg *= 2;
+            iC = 1;
+          }
+          projectiles.push(
+            new Projectile(
+              pX,
+              pY,
+              pvx,
+              pvy,
+              dmg,
+              "player",
+              this.projectileSizeMultiplier,
+              this.projectileHits,
+              iC
+            )
+          );
+        }
+        takeDamage(amount) {
+          if (this.isInvincible) return;
+          const actualDmg = Math.max(1, amount * (1 - this.defense));
+          this.hp -= actualDmg;
+          floatingTexts.push(
+            new FloatingText(
+              this.x + this.width / 2,
+              this.y,
+              `-${actualDmg.toFixed(0)}`,
+              "red"
+            )
+          );
+          if (this.hp <= 0) {
+            this.hp = 0;
+            if (this.hasRevive) {
+              this.hp = this.maxHp * 0.5;
+              this.hasRevive = false;
+              floatingTexts.push(
+                new FloatingText(
+                  this.x + this.width / 2,
+                  this.y - 20,
+                  "REVIVED!",
+                  "gold",
+                  2000
+                )
+              );
+              this.isInvincible = true;
+              this.invincibilityTimer = 2000;
+            } else {
+              gameOver();
+            }
+          } else {
+            this.isInvincible = true;
+            this.invincibilityTimer = this.invincibilityDuration;
+          }
+        }
+        gainXp(amount) {
+          this.xp += amount;
+          this.score += amount;
+          floatingTexts.push(
+            new FloatingText(
+              this.x + this.width / 2,
+              this.y,
+              `+${amount}XP`,
+              "lightblue",
+              1e3
+            )
+          );
+          if (this.xp >= this.maxXp) this.levelUp();
+        }
+        heal(amount) {
+          this.hp = Math.min(this.maxHp, this.hp + amount);
+          floatingTexts.push(
+            new FloatingText(
+              this.x + this.width / 2,
+              this.y,
+              `+${amount}HP`,
+              "lime",
+              1e3
+            )
+          );
+        }
+        levelUp() {
+          this.level++;
+          this.xp = 0;
+          this.maxXp = Math.floor(this.maxXp * 1.5);
+          this.hp = this.maxHp;
+          gameState = "levelUp";
+          presentUpgradeChoices();
+          floatingTexts.push(
+            new FloatingText(
+              canvas.width / 2,
+              canvas.height / 2 - 30,
+              `LEVEL UP!`,
+              "gold",
+              2500,
+              36
+            )
+          );
+          if (this.level % 5 === 0 && pets) {
+            // Corrected pet spawning
+            pets.push(new Pet(this.x, this.y - 30));
+            floatingTexts.push(
+              new FloatingText(
+                this.x,
+                this.y - 50,
+                "New Companion!",
+                "pink",
+                2000,
+                20
+              )
+            );
+          }
+          if (this.level % 3 === 0) {
+            // NEW: Increase max enemies
+            currentMaxEnemies += 1;
+            floatingTexts.push(
+              new FloatingText(
+                canvas.width / 2,
+                100,
+                `Wave Size Increased! Max: ${currentMaxEnemies}`,
+                "cyan",
+                2500,
+                22
+              )
+            );
+          }
+        }
+        activateSpecialAbility() {
+          if (!this.specialAbilityReady) return;
+          this.specialAbilityReady = false;
+          this.specialAbilityCharge = 0;
+          screenShakeDuration = 500;
+          screenShakeMagnitude = 8;
+          screenFlashDuration = 200;
+          screenFlashAlpha = 0.7;
+          const numBolts = 5 + Math.floor(Math.random() * 4);
+          for (let i = 0; i < numBolts; i++) {
+            const boltX = Math.random() * canvas.width;
+            projectiles.push(
+              new LightningBolt(boltX, 0, this.projectileDamage * 6)
+            );
+          }
+        } // Corrected lightning damage
+      }
+
+      // Event Listeners
+      window.addEventListener("keydown", (e) => {
+        keys[e.key.toLowerCase()] = true;
+        if (
+          (e.key === " " || e.key === "Spacebar") &&
+          gameState === "playing" &&
+          player
+        ) {
+          e.preventDefault();
+          player.jump();
+        }
+        if (e.key.toLowerCase() === "w" && gameState === "playing" && player) {
+          e.preventDefault();
+          player.activateSpecialAbility();
+        }
+      });
+      window.addEventListener("keyup", (e) => {
+        keys[e.key.toLowerCase()] = false;
+      });
+      canvas.addEventListener("mousemove", (e) => {
+        const r = canvas.getBoundingClientRect();
+        mouse.x = e.clientX - r.left;
+        mouse.y = e.clientY - r.top;
+      });
+      canvas.addEventListener("mousedown", (e) => {
+        if (e.button === 0) mouse.down = true;
+      });
+      canvas.addEventListener("mouseup", (e) => {
+        if (e.button === 0) mouse.down = false;
+      });
+      canvas.addEventListener("contextmenu", (e) => e.preventDefault());
+
+      // --- GAME LOOP ---
+      // (gameLoop function should be the same as the last provided version)
+      function gameLoop(timestamp) {
+        if (!timestamp) timestamp = 0;
+        if (lastTime === 0) {
+          lastTime = timestamp;
+          requestAnimationFrame(gameLoop);
+          return;
+        }
+        deltaTime = (timestamp - lastTime) / 1e3;
+        lastTime = timestamp;
+        deltaTime = Math.min(deltaTime, 0.1);
+        if (gameState === "playing") updateGame(deltaTime);
+        drawGame();
+        if (gameState !== "gameOver") requestAnimationFrame(gameLoop);
+      }
+
+      class Projectile extends Entity {
+        constructor(x, y, vx, vy, d, o, sM = 1, h = 1, iC = 0) {
+          const bR = 5,
+            r = bR * sM;
+          super(
+            x - r,
+            y - r,
+            r * 2,
+            r * 2,
+            o === "player"
+              ? iC
+                ? "#FFA500"
+                : "#00FF00"
+              : o === "boss"
+              ? "#FF69B4"
+              : "#FF4500"
+          );
+          this.radius = r;
+          this.vx = vx;
+          this.vy = vy;
+          this.damage = d;
+          this.owner = o;
+          this.hitsLeft = h;
+          this.isCrit = iC;
+          this.isBossProjectile = o === "boss";
+        }
+        draw(c) {
+          c.fillStyle = this.color;
+          c.beginPath();
+          c.arc(
+            this.x + this.radius,
+            this.y + this.radius,
+            this.radius * (this.isBossProjectile ? 1.8 : 1),
+            0,
+            Math.PI * 2
+          );
+          c.fill();
+          if (this.isCrit && this.owner === "player") {
+            c.strokeStyle = "#FF4500";
+            c.lineWidth = 2;
+            c.stroke();
+          }
+        }
+        update(dt) {
+          this.x += this.vx * dt;
+          this.y += this.vy * dt;
+        }
+        onHit() {
+          this.hitsLeft--;
+          return this.hitsLeft <= 0;
+        }
+      }
+      class LightningBolt extends Entity {
+        constructor(x, y, damage) {
+          super(x - 5, y, 10, canvas.height, "rgba(255, 255, 0, 0.8)");
+          this.damage = damage;
+          this.duration = 300;
+          this.owner = "special";
+          this.hitEnemies = new Set();
+        }
+        update(dtSeconds) {
+          this.duration -= dtSeconds * 1000;
+        }
+        draw(ctx) {
+          if (this.duration > 0) {
+            ctx.fillStyle = this.color;
+            ctx.beginPath();
+            ctx.moveTo(this.x + this.width / 2, this.y);
+            let currentY = this.y;
+            while (currentY < this.y + this.height) {
+              const nextX =
+                this.x +
+                this.width / 2 +
+                (Math.random() - 0.5) * this.width * 2;
+              const nextY = currentY + Math.random() * 30 + 10;
+              ctx.lineTo(nextX, Math.min(nextY, this.y + this.height));
+              currentY = nextY;
+            }
+            ctx.lineWidth = Math.random() * 4 + 2;
+            ctx.strokeStyle = `rgba(255, 255, 150, ${
+              Math.random() * 0.5 + 0.5
+            })`;
+            ctx.stroke();
+            ctx.fillStyle = "rgba(255, 255, 220, 0.9)";
+            ctx.fillRect(this.x, this.y, this.width, this.height);
+          }
+        }
+      }
+      class Enemy extends Entity {
+        constructor(x, y, pL) {
+          const sM = Math.floor(gameTimeSurvived / 30),
+            bS = 25 + sM * 2;
+          super(x, y, bS, bS * 0.8, "#CD5C5C");
+          this.xpValue = 10 + Math.floor(gameTimeSurvived / 30) * 5;
+          this.baseFallSpeed = 25;
+          const lT = Math.max(0, Math.floor((pL - 1) / 3));
+          this.vy = this.baseFallSpeed + lT * 10;
+          this.shootCooldown = 0;
+          this.attackSpeed =
+            2800 - Math.min(1800, Math.floor(gameTimeSurvived / 12) * 100);
+          this.hasStoppedFalling = false;
+          this.projectileSpeed = 180 + Math.floor(gameTimeSurvived / 45) * 20;
+          this.damage = 5 + Math.floor(gameTimeSurvived / 20) * 2;
+          this.maxPlayerHits = 2;
+          this.currentPlayerHits = 0;
+        }
+        update(dt) {
+          if (!this.hasStoppedFalling) {
+            this.y += this.vy * dt;
+            if (this.y + this.height >= ENEMY_STOP_Y_LINE) {
+              this.y = ENEMY_STOP_Y_LINE - this.height;
+              this.hasStoppedFalling = true;
+              this.vy = 0;
+            }
+          } else {
+            this.shootCooldown -= dt * 1e3;
+            if (this.shootCooldown <= 0 && player && player.hp > 0) {
+              this.shoot();
+              this.shootCooldown =
+                this.attackSpeed * (0.8 + Math.random() * 0.4);
+            }
+          }
+        }
+        draw(ctx) {
+          const cX = this.x + this.width / 2,
+            cY = this.y + this.height / 2,
+            bWR = this.width * 0.4,
+            bHR = this.height * 0.45;
+          ctx.fillStyle = "#696969";
+          const wH = this.height * 0.8,
+            wS = this.width * 0.6;
+          ctx.beginPath();
+          ctx.moveTo(cX - bWR * 0.3, cY - bHR * 0.2);
+          ctx.lineTo(cX - bWR - wS, cY - wH / 2);
+          ctx.lineTo(cX - bWR - wS * 0.5, cY + wH / 2);
+          ctx.closePath();
+          ctx.fill();
+          ctx.beginPath();
+          ctx.moveTo(cX + bWR * 0.3, cY - bHR * 0.2);
+          ctx.lineTo(cX + bWR + wS, cY - wH / 2);
+          ctx.lineTo(cX + bWR + wS * 0.5, cY + wH / 2);
+          ctx.closePath();
+          ctx.fill();
+          ctx.fillStyle = this.color;
+          ctx.beginPath();
+          ctx.ellipse(cX, cY, bWR, bHR, 0, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.fillStyle = "#FFFF00";
+          const eR = bWR * 0.35;
+          ctx.beginPath();
+          ctx.arc(cX, cY - bHR * 0.1, eR, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.fillStyle = "#000000";
+          const pR = eR * 0.5;
+          ctx.beginPath();
+          ctx.arc(cX, cY - bHR * 0.1, pR, 0, Math.PI * 2);
+          ctx.fill();
+        }
+        shoot() {
+          const pX = this.x + this.width / 2,
+            pY = this.y + this.height / 2,
+            ang = Math.atan2(
+              player.y + player.height / 2 - pY,
+              player.x + player.width / 2 - pX
+            ),
+            pvx = Math.cos(ang) * this.projectileSpeed,
+            pvy = Math.sin(ang) * this.projectileSpeed;
+          projectiles.push(
+            new Projectile(pX, pY, pvx, pvy, this.damage, "enemy")
+          );
+        }
+        takeDamage(projDmg, srcP) {
+          if (srcP) {
+            this.currentPlayerHits++;
+            floatingTexts.push(
+              new FloatingText(
+                this.x + this.width / 2,
+                this.y,
+                `-${projDmg.toFixed(0)}`,
+                "yellow",
+                800
+              )
+            );
+            if (srcP.lifeSteal > 0) {
+              const hA = Math.max(1, Math.floor(projDmg * srcP.lifeSteal));
+              srcP.heal(hA);
+            }
+            if (this.currentPlayerHits >= this.maxPlayerHits) {
+              srcP.gainXp(this.xpValue);
+              if (Math.random() < srcP.soulChance) {
+                srcP.gainXp(5);
+                floatingTexts.push(
+                  new FloatingText(
+                    this.x + this.width / 2,
+                    this.y - 20,
+                    `SOUL!`,
+                    "cyan",
+                    1500
+                  )
+                );
+              }
+              if (Math.random() < srcP.healingOrbChance) {
+                srcP.heal(5);
+                floatingTexts.push(
+                  new FloatingText(
+                    this.x + this.width / 2,
+                    this.y - 20,
+                    `ORB!`,
+                    "lightgreen",
+                    1500
+                  )
+                );
+              }
+              return true;
+            }
+          }
+          return false;
+        }
+      }
+      class Boss extends Entity {
+        constructor(x, y, playerLevel) {
+          super(x, y, 120, 100, "#8B0000");
+          this.baseX = x;
+          this.hoverOffset = 0;
+          this.hoverSpeed = 0.5;
+          this.vy = 20;
+          this.hasStoppedFalling = false;
+          this.stopY = ENEMY_STOP_Y_LINE - this.height + 20;
+          this.maxHits = 500; // ADJUSTED: Boss hits
+          this.currentHits = 0;
+          this.xpValue = 250 + playerLevel * 20;
+          this.shootCooldown = 0;
+          this.regularAttackSpeed = 2000;
+          this.specialAttackCooldown = 0;
+          this.specialAttackInterval = 8000;
+          this.projectileSpeed = 100;
+          this.damage = 15 + playerLevel * 2;
+        }
+        update(dtSeconds) {
+          if (!this.hasStoppedFalling) {
+            this.y += this.vy * dtSeconds;
+            if (this.y >= this.stopY) {
+              this.y = this.stopY;
+              this.hasStoppedFalling = true;
+              this.vy = 0;
+            }
+          } else {
+            this.hoverOffset += this.hoverSpeed * dtSeconds;
+            this.x = this.baseX + Math.sin(this.hoverOffset) * 30;
+            this.shootCooldown -= dtSeconds * 1000;
+            if (this.shootCooldown <= 0 && player && player.hp > 0) {
+              this.shootRegular();
+              this.shootCooldown = this.regularAttackSpeed;
+            }
+            this.specialAttackCooldown -= dtSeconds * 1000;
+            if (this.specialAttackCooldown <= 0 && player && player.hp > 0) {
+              this.shootSpecial();
+              this.specialAttackCooldown =
+                this.specialAttackInterval * (0.8 + Math.random() * 0.4);
+            }
+          }
+        }
+        draw(ctx) {
+          const centerX = this.x + this.width / 2;
+          const centerY = this.y + this.height / 2;
+          ctx.fillStyle = this.color;
+          ctx.beginPath();
+          ctx.ellipse(
+            centerX,
+            centerY,
+            this.width / 2,
+            this.height / 2,
+            0,
+            0,
+            Math.PI * 2
+          );
+          ctx.fill();
+          ctx.fillStyle = "#FF4500";
+          const coreRadius = this.width * 0.2;
+          ctx.beginPath();
+          ctx.arc(
+            centerX,
+            centerY - this.height * 0.1,
+            coreRadius,
+            0,
+            Math.PI * 2
+          );
+          ctx.fill();
+          ctx.fillStyle = "#FFFF00";
+          ctx.beginPath();
+          ctx.arc(
+            centerX,
+            centerY - this.height * 0.1,
+            coreRadius * 0.5,
+            0,
+            Math.PI * 2
+          );
+          ctx.fill();
+          ctx.fillStyle = "#660000";
+          const hornBase = this.width * 0.15;
+          const hornHeight = this.height * 0.3;
+          ctx.beginPath();
+          ctx.moveTo(centerX - this.width * 0.3, centerY - this.height * 0.3);
+          ctx.lineTo(
+            centerX - this.width * 0.3 - hornBase,
+            centerY - this.height * 0.3 - hornHeight
+          );
+          ctx.lineTo(
+            centerX - this.width * 0.3 + hornBase,
+            centerY - this.height * 0.3 - hornHeight
+          );
+          ctx.closePath();
+          ctx.fill();
+          ctx.beginPath();
+          ctx.moveTo(centerX + this.width * 0.3, centerY - this.height * 0.3);
+          ctx.lineTo(
+            centerX + this.width * 0.3 - hornBase,
+            centerY - this.height * 0.3 - hornHeight
+          );
+          ctx.lineTo(
+            centerX + this.width * 0.3 + hornBase,
+            centerY - this.height * 0.3 - hornHeight
+          );
+          ctx.closePath();
+          ctx.fill();
+          const hpBarWidth = this.width * 0.8;
+          const hpBarHeight = 8;
+          const hpBarX = centerX - hpBarWidth / 2;
+          const hpBarY = this.y - hpBarHeight - 5;
+          ctx.fillStyle = "#500";
+          ctx.fillRect(hpBarX, hpBarY, hpBarWidth, hpBarHeight);
+          ctx.fillStyle = "#F00";
+          ctx.fillRect(
+            hpBarX,
+            hpBarY,
+            (hpBarWidth * (this.maxHits - this.currentHits)) / this.maxHits,
+            hpBarHeight
+          );
+          ctx.strokeStyle = "#FFF";
+          ctx.strokeRect(hpBarX, hpBarY, hpBarWidth, hpBarHeight);
+        }
+        shootRegular() {
+          const projX = this.x + this.width / 2;
+          const projY = this.y + this.height / 2;
+          const angle = Math.atan2(
+            player.y + player.height / 2 - projY,
+            player.x + player.width / 2 - projX
+          );
+          const pvx = Math.cos(angle) * this.projectileSpeed;
+          const pvy = Math.sin(angle) * this.projectileSpeed;
+          projectiles.push(
+            new Projectile(projX, projY, pvx, pvy, this.damage, "boss")
+          );
+        }
+        shootSpecial() {
+          const projX = this.x + this.width / 2;
+          const projY = this.y + this.height / 2;
+          const numSpread = 7;
+          const spreadAngle = Math.PI / 4;
+          const angleIncrement = spreadAngle / (numSpread - 1);
+          const baseAngle =
+            Math.atan2(
+              player.y + player.height / 2 - projY,
+              player.x + player.width / 2 - projX
+            ) -
+            spreadAngle / 2;
+          for (let i = 0; i < numSpread; i++) {
+            const angle = baseAngle + i * angleIncrement;
+            const pvx = Math.cos(angle) * (this.projectileSpeed * 1.5);
+            const pvy = Math.sin(angle) * (this.projectileSpeed * 1.5);
+            projectiles.push(
+              new Projectile(projX, projY, pvx, pvy, this.damage * 0.7, "boss")
+            );
+          }
+          floatingTexts.push(
+            new FloatingText(
+              this.x + this.width / 2,
+              this.y - 20,
+              `SPREAD SHOT!`,
+              "magenta",
+              1500,
+              20
+            )
+          );
+        }
+        takeDamage(projectileDamageValue, sourcePlayer) {
+          if (sourcePlayer) {
+            this.currentHits++;
+            floatingTexts.push(
+              new FloatingText(
+                this.x + this.width / 2,
+                this.y + Math.random() * this.height,
+                `-${projectileDamageValue.toFixed(0)}`,
+                "#FFD700",
+                1000
+              )
+            );
+            if (sourcePlayer.lifeSteal > 0) {
+              const healedAmount = Math.max(
+                1,
+                Math.floor(projectileDamageValue * sourcePlayer.lifeSteal)
+              );
+              sourcePlayer.heal(healedAmount);
+            }
+            if (this.currentHits >= this.maxHits) {
+              sourcePlayer.gainXp(this.xpValue);
+              floatingTexts.push(
+                new FloatingText(
+                  this.x + this.width / 2,
+                  this.y + this.height / 2,
+                  `BOSS DEFEATED!`,
+                  "gold",
+                  3000,
+                  30
+                )
+              );
+              for (let i = 0; i < 5; i++) {
+                if (Math.random() < 0.8)
+                  sourcePlayer.gainXp(20 + Math.floor(Math.random() * 10));
+                if (Math.random() < 0.6)
+                  sourcePlayer.heal(10 + Math.floor(Math.random() * 10));
+              }
+              return true;
+            }
+          }
+          return false;
+        }
+      }
+      class Pet extends Entity {
+        constructor(x, y) {
+          super(x, y, 20, 25, "#FFFFFF");
+          this.targetX = x;
+          this.targetY = y;
+          this.moveTimer = 0;
+          this.moveInterval = 500 + Math.random() * 500;
+          this.shootTimer = Math.random() * 2000;
+          this.shootInterval = 2000;
+          this.maxHp = 1000; // ADJUSTED: Pet HP
+          this.hp = this.maxHp;
+          this.projectileSpeed = 250;
+          this.projectileDamage = player ? player.projectileDamage * 0.3 : 3;
+        }
+        update(dtSeconds) {
+          this.moveTimer -= dtSeconds * 1000;
+          if (this.moveTimer <= 0 && player) {
+            this.targetX = player.x + (Math.random() - 0.5) * 100;
+            this.targetY = player.y - 20 + (Math.random() - 0.5) * 60;
+            this.moveTimer = this.moveInterval;
+          }
+          const speed = 80;
+          const dx = this.targetX - this.x;
+          const dy = this.targetY - this.y;
+          const dist = Math.sqrt(dx * dx + dy * dy);
+          if (dist > 1) {
+            this.x += (dx / dist) * speed * dtSeconds;
+            this.y += (dy / dist) * speed * dtSeconds;
+          }
+          this.shootTimer -= dtSeconds * 1000;
+          if (this.shootTimer <= 0) {
+            this.shoot();
+            this.shootTimer = this.shootInterval * (0.9 + Math.random() * 0.2);
+          }
+        }
+        draw(ctx) {
+          const bodyRadiusX = this.width / 2;
+          const bodyRadiusY = this.height * 0.35;
+          const headRadius = this.width * 0.3;
+          ctx.fillStyle = this.color;
+          ctx.beginPath();
+          ctx.ellipse(
+            this.x + bodyRadiusX,
+            this.y + this.height * 0.65,
+            bodyRadiusX,
+            bodyRadiusY,
+            0,
+            0,
+            Math.PI * 2
+          );
+          ctx.fill();
+          ctx.beginPath();
+          ctx.arc(
+            this.x + bodyRadiusX,
+            this.y + headRadius * 1.1,
+            headRadius,
+            0,
+            Math.PI * 2
+          );
+          ctx.fill();
+          const earWidth = headRadius * 0.5;
+          const earHeight = this.height * 0.5;
+          ctx.fillStyle = "#FFE4E1";
+          ctx.beginPath();
+          ctx.ellipse(
+            this.x + bodyRadiusX - headRadius * 0.6,
+            this.y + headRadius * 0.5 - earHeight / 2,
+            earWidth * 0.3,
+            earHeight * 0.4,
+            -Math.PI / 6,
+            0,
+            Math.PI * 2
+          );
+          ctx.fill();
+          ctx.beginPath();
+          ctx.ellipse(
+            this.x + bodyRadiusX + headRadius * 0.6,
+            this.y + headRadius * 0.5 - earHeight / 2,
+            earWidth * 0.3,
+            earHeight * 0.4,
+            Math.PI / 6,
+            0,
+            Math.PI * 2
+          );
+          ctx.fill();
+          ctx.fillStyle = this.color;
+          ctx.beginPath();
+          ctx.ellipse(
+            this.x + bodyRadiusX - headRadius * 0.6,
+            this.y + headRadius * 0.5 - earHeight / 2,
+            earWidth / 2,
+            earHeight / 2,
+            -Math.PI / 6,
+            0,
+            Math.PI * 2
+          );
+          ctx.fill();
+          ctx.beginPath();
+          ctx.ellipse(
+            this.x + bodyRadiusX + headRadius * 0.6,
+            this.y + headRadius * 0.5 - earHeight / 2,
+            earWidth / 2,
+            earHeight / 2,
+            Math.PI / 6,
+            0,
+            Math.PI * 2
+          );
+          ctx.fill();
+          ctx.beginPath();
+          ctx.arc(
+            this.x + bodyRadiusX + bodyRadiusX * 0.8,
+            this.y + this.height * 0.7,
+            headRadius * 0.4,
+            0,
+            Math.PI * 2
+          );
+          ctx.fill();
+        }
+        shoot() {
+          const projX = this.x + this.width / 2;
+          const projY = this.y;
+          const angle = -Math.PI / 3 - (Math.random() * Math.PI) / 3;
+          const pvx = Math.cos(angle) * this.projectileSpeed;
+          const pvy = Math.sin(angle) * this.projectileSpeed;
+          const pDamage = player ? player.projectileDamage * 0.3 : 3;
+          projectiles.push(
+            new Projectile(projX, projY, pvx, pvy, pDamage, "pet")
+          );
+        }
+        takeDamage(amount) {
+          // Pet takes damage amount now, not just 1 hit death
+          this.hp -= amount;
+          if (this.hp <= 0) {
+            this.hp = 0;
+            floatingTexts.push(
+              new FloatingText(
+                this.x + this.width / 2,
+                this.y,
+                "Poof!",
+                "grey",
+                1000
+              )
+            );
+            return true; // Died
+          }
+          floatingTexts.push(
+            new FloatingText(
+              this.x + this.width / 2,
+              this.y,
+              `-${amount}`,
+              "lightgrey",
+              800,
+              12
+            )
+          );
+          return false; // Survived
+        }
+      }
+      class DestructibleBlock extends Entity {
+        constructor(x, y) {
+          super(x, y, 60, 30, "#A0522D");
+          this.maxHp = 50;
+          this.hp = this.maxHp;
+        }
+        takeDamage(a) {
+          this.hp -= a;
+          const hpP = this.hp / this.maxHp;
+          if (hpP <= 0) return 1;
+          else if (hpP < 0.33) this.color = "#65200c";
+          else if (hpP < 0.66) this.color = "#823b1c";
+          return 0;
+        }
+        draw(c) {
+          super.draw(c);
+          c.strokeStyle = "rgba(0,0,0,0.5)";
+          c.lineWidth = 1;
+          const cr = Math.floor((1 - this.hp / this.maxHp) * 5);
+          for (let i = 0; i < cr && this.hp > 0; i++) {
+            c.beginPath();
+            c.moveTo(
+              this.x + Math.random() * this.width,
+              this.y + Math.random() * this.height
+            );
+            c.lineTo(
+              this.x + Math.random() * this.width,
+              this.y + Math.random() * this.height
+            );
+            c.stroke();
+          }
+        }
+      }
+      class FloatingText {
+        constructor(x, y, t, c, du = 1e3, s = 16) {
+          this.x = x;
+          this.y = y;
+          this.text = t;
+          this.color = c;
+          this.duration = du;
+          this.alpha = 1;
+          this.vy = -30;
+          this.size = s;
+        }
+        update(dt) {
+          this.y += this.vy * dt;
+          this.duration -= dt * 1e3;
+          this.alpha = Math.max(0, this.duration / 1e3);
+        }
+        draw(c) {
+          c.fillStyle = this.color;
+          c.globalAlpha = this.alpha;
+          c.font = `bold ${this.size}px Arial`;
+          c.textAlign = "center";
+          c.fillText(this.text, this.x, this.y);
+          c.textAlign = "left";
+          c.globalAlpha = 1;
+        }
+      }
+      function createCaveBackground() {
+        backgroundElements = [];
+        const rC1 = "#383838",
+          rC2 = "#2A2A2A",
+          rC3 = "#202020";
+        backgroundElements.push({
+          type: "rect",
+          x: 0,
+          y: 0,
+          width: canvas.width,
+          height: GROUND_HEIGHT,
+          color: rC3,
+        });
+        for (let i = 0; i < 5; i++) {
+          const w = Math.random() * 150 + 100,
+            h = Math.random() * 200 + 100,
+            x = Math.random() * (canvas.width - w),
+            y = GROUND_HEIGHT - h + Math.random() * 50 - 25;
+          backgroundElements.push({
+            type: "rect",
+            x,
+            y,
+            width: w,
+            height: h,
+            color: rC2,
+          });
+        }
+        for (let i = 0; i < 15; i++) {
+          const x = Math.random() * canvas.width,
+            w = Math.random() * 20 + 10,
+            h = Math.random() * 80 + 30;
+          if (Math.random() > 0.3)
+            backgroundElements.push({
+              type: "triangle",
+              x1: x,
+              y1: 0,
+              x2: x - w / 2,
+              y2: h,
+              x3: x + w / 2,
+              y3: h,
+              color: rC1,
+            });
+          if (Math.random() > 0.6) {
+            let gY = GROUND_HEIGHT;
+            if (terrainPlatforms) {
+              for (const plat of terrainPlatforms)
+                if (x > plat.x && x < plat.x + plat.width) {
+                  gY = plat.y;
+                  break;
+                }
+            }
+            if (gY > h)
+              backgroundElements.push({
+                type: "triangle",
+                x1: x,
+                y1: gY,
+                x2: x - w / 2,
+                y2: gY - h,
+                x3: x + w / 2,
+                y3: gY - h,
+                color: rC1,
+              });
+          }
+        }
+      }
+      function drawCaveBackground(ctx) {
+        if (!backgroundElements) return;
+        backgroundElements.forEach((el) => {
+          ctx.fillStyle = el.color;
+          if (el.type === "rect") ctx.fillRect(el.x, el.y, el.width, el.height);
+          else if (el.type === "triangle") {
+            ctx.beginPath();
+            ctx.moveTo(el.x1, el.y1);
+            ctx.lineTo(el.x2, el.y2);
+            ctx.lineTo(el.x3, el.y3);
+            ctx.closePath();
+            ctx.fill();
+          }
+        });
+      }
+      function createTerrain() {
+        terrainPlatforms = [];
+        terrainPlatforms.push({
+          x: 150,
+          y: GROUND_HEIGHT - 40,
+          width: 180,
+          height: 40,
+          color: "#4A3B31",
+        });
+        terrainPlatforms.push({
+          x: canvas.width - 330,
+          y: GROUND_HEIGHT - 60,
+          width: 220,
+          height: 60,
+          color: "#4A3B31",
+        });
+        terrainPlatforms.push({
+          x: canvas.width / 2 - 75,
+          y: GROUND_HEIGHT - 25,
+          width: 150,
+          height: 25,
+          color: "#4A3B31",
+        });
+      }
+
+      function init() {
+        createTerrain();
+        createCaveBackground();
+        player = new Player(canvas.width / 2 - 11, GROUND_HEIGHT - 42);
+        enemies = [];
+        projectiles = [];
+        blocks = [];
+        floatingTexts = [];
+        pets = [];
+        activeBoss = null;
+        score = 0;
+        gameTime = 0;
+        gameTimeSurvived = 0;
+        enemySpawnTimer = 0;
+        enemySpawnInterval = 3500;
+        blockSpawnTimer = 0;
+        blockSpawnInterval = 15000;
+        currentMaxEnemies = 3; // Reset max enemies
+        let p = player;
+        p.hp = p.maxHp = 100;
+        p.xp = 0;
+        p.maxXp = 100;
+        p.level = 1;
+        p.score = 0;
+        p.moveSpeed = 250;
+        p.jumpStrength = 450;
+        p.maxJumps = 1;
+        p.attackSpeedCooldown = 300;
+        p.projectileDamage = 10;
+        p.projectileSizeMultiplier = 1;
+        p.projectileHits = 1;
+        p.critChance = 0.05;
+        p.defense = 0;
+        p.soulChance = 0;
+        p.invincibilityDuration = 500;
+        p.lifeSteal = 0;
+        p.healingOrbChance = 0;
+        p.hasRevive = false;
+        p.upgradeChoices = 3;
+        p.specialAbilityCharge = 0;
+        p.specialAbilityReady = false;
+        availableUpgrades = [...allUpgrades];
+        gameState = "playing";
+        upgradeScreen.style.display = "none";
+        gameOverScreen.style.display = "none";
+      }
+      function restartGame() {
+        init();
+        lastTime = 0;
+        requestAnimationFrame(gameLoop);
+      }
+
+      function updateGame(dtSeconds) {
+        if (gameState !== "playing") return;
+        gameTime += dtSeconds * 1e3;
+        gameTimeSurvived += dtSeconds;
+        if (player) player.update(dtSeconds);
+        if (screenShakeDuration > 0) screenShakeDuration -= dtSeconds * 1000;
+        else screenShakeMagnitude = 0;
+        if (screenFlashDuration > 0) screenFlashDuration -= dtSeconds * 1000;
+        else screenFlashAlpha = 0;
+
+        if (!activeBoss && enemies.length < currentMaxEnemies) {
+          // Check against currentMaxEnemies for normal spawning
+          enemySpawnTimer += dtSeconds * 1e3;
+          if (enemySpawnTimer >= enemySpawnInterval) {
+            spawnEnemy();
+            enemySpawnTimer = 0;
+            // Adjust interval for how fast it TRIES to fill the cap
+            if (player && player.level <= 6) {
+              // Initial faster ramp-up of spawn attempts
+              enemySpawnInterval = Math.max(500, enemySpawnInterval * 0.95);
+            } else {
+              // Slower decrease in interval later on
+              enemySpawnInterval = Math.max(700, enemySpawnInterval * 0.98);
+            }
+          }
+        } else if (activeBoss) {
+          activeBoss.update(dtSeconds);
+        }
+
+        blockSpawnTimer += dtSeconds * 1e3;
+        if (blockSpawnTimer >= blockSpawnInterval) {
+          spawnBlock();
+          blockSpawnTimer = 0;
+          blockSpawnInterval = 12e3 + Math.random() * 8e3;
+        }
+        enemies.forEach((e) => e.update(dtSeconds));
+        pets.forEach((p) => p.update(dtSeconds));
+        for (let i = projectiles.length - 1; i >= 0; i--) {
+          const proj = projectiles[i];
+          proj.update(dtSeconds);
+          if (
+            (proj.owner === "special" && proj.duration <= 0) ||
+            proj.x < -50 ||
+            proj.x > canvas.width + 50 ||
+            proj.y < -50 ||
+            proj.y > canvas.height + 50
+          )
+            projectiles.splice(i, 1);
+        }
+        for (let i = floatingTexts.length - 1; i >= 0; i--) {
+          floatingTexts[i].update(dtSeconds);
+          if (floatingTexts[i].duration <= 0) floatingTexts.splice(i, 1);
+        }
+        handleCollisions();
+      }
+
+      function spawnEnemy() {
+        if (
+          player &&
+          player.level > 0 &&
+          player.level % 5 === 0 &&
+          !activeBoss &&
+          enemies.length === 0
+        ) {
+          activeBoss = new Boss(canvas.width / 2 - 60, -120, player.level);
+          floatingTexts.push(
+            new FloatingText(
+              canvas.width / 2,
+              canvas.height / 3,
+              `BOSS INCOMING!`,
+              "red",
+              3000,
+              40
+            )
+          );
+          enemies = []; // Clear normal enemies
+          return;
+        }
+        if (!activeBoss) {
+          // Only spawn normal enemies if no boss and cap not reached (cap checked in updateGame)
+          const x = Math.random() * (canvas.width - 40) + 5;
+          if (player) enemies.push(new Enemy(x, -30, player.level));
+        }
+      }
+      function spawnBlock() {
+        const numBlocks = 1 + Math.floor(Math.random() * 2);
+        const clusterWidth = 250;
+        const startX =
+          canvas.width / 2 -
+          clusterWidth / 2 +
+          Math.random() * (clusterWidth - 60);
+        for (let i = 0; i < numBlocks; i++) {
+          const x = startX + (Math.random() - 0.5) * 100;
+          const y =
+            BLOCK_SPAWN_MIN_Y +
+            Math.random() * (BLOCK_SPAWN_MAX_Y - BLOCK_SPAWN_MIN_Y - 30);
+          let canSpawn = true;
+          for (const b of blocks)
+            if (Math.abs(b.x - x) < 60 && Math.abs(b.y - y) < 30) {
+              canSpawn = false;
+              break;
+            }
+          if (canSpawn) blocks.push(new DestructibleBlock(x, y));
+        }
+        if (blocks.length > 8) blocks.splice(0, blocks.length - 8);
+      }
+      function updateSpecialAbilityUI(chargePercent, isReady) {
+        specialAbilityBarFill.style.width = `${chargePercent * 100}%`;
+        if (isReady) {
+          specialAbilityBarFill.style.backgroundColor = "#00FF00";
+          specialAbilityBarText.textContent = "READY! (W)";
+        } else {
+          specialAbilityBarFill.style.backgroundColor = "#FFFF00";
+          const timeLeft = (
+            (player.specialAbilityMaxCharge - player.specialAbilityCharge) /
+            1000
+          ).toFixed(1);
+          specialAbilityBarText.textContent = `Charging... ${timeLeft}s`;
+        }
+      }
+
+      function handleCollisions() {
+        for (let i = projectiles.length - 1; i >= 0; i--) {
+          const p = projectiles[i];
+          if (!p) continue;
+          if (p.owner === "player" || p.owner === "pet") {
+            for (let j = enemies.length - 1; j >= 0; j--) {
+              const e = enemies[j];
+              if (CircRectCollision(p, e)) {
+                if (e.takeDamage(p.damage, player)) enemies.splice(j, 1);
+                if (p.onHit()) {
+                  projectiles.splice(i, 1);
+                  break;
+                }
+              }
+            }
+            if (!projectiles[i]) continue;
+            if (activeBoss) {
+              if (CircRectCollision(p, activeBoss)) {
+                if (activeBoss.takeDamage(p.damage, player)) {
+                  activeBoss = null;
+                  enemySpawnTimer = Math.max(
+                    0,
+                    enemySpawnInterval - 2000
+                  ); /* Try to spawn next wave relatively soon */
+                }
+                if (p.onHit()) {
+                  projectiles.splice(i, 1);
+                  continue;
+                }
+              }
+            }
+            if (!projectiles[i]) continue;
+            for (let k = blocks.length - 1; k >= 0; k--) {
+              const b = blocks[k];
+              if (CircRectCollision(p, b)) {
+                if (
+                  b.takeDamage(p.damage * (p.owner === "player" ? 0.6 : 0.3))
+                ) {
+                  blocks.splice(k, 1);
+                }
+                if (p.onHit()) {
+                  projectiles.splice(i, 1);
+                  break;
+                }
+              }
+            }
+          } else if (p.owner === "enemy" || p.owner === "boss") {
+            if (player && CircRectCollision(p, player)) {
+              player.takeDamage(p.damage);
+              projectiles.splice(i, 1);
+              continue;
+            }
+            if (!projectiles[i]) continue;
+            for (let k = pets.length - 1; k >= 0; k--) {
+              const pet = pets[k];
+              if (CircRectCollision(p, pet)) {
+                if (pet.takeDamage(p.damage)) pets.splice(k, 1);
+                projectiles.splice(i, 1);
+                break;
+              }
+            } // Pass damage to pet
+            if (!projectiles[i]) continue;
+            for (let k = blocks.length - 1; k >= 0; k--) {
+              const b = blocks[k];
+              if (CircRectCollision(p, b)) {
+                if (b.takeDamage(p.damage)) {
+                  blocks.splice(k, 1);
+                }
+                projectiles.splice(i, 1);
+                break;
+              }
+            }
+          } else if (p.owner === "special") {
+            // Corrected: Check p.owner
+            for (let j = enemies.length - 1; j >= 0; j--) {
+              const e = enemies[j];
+              if (!p.hitEnemies.has(e) && AABBCollision(p, e)) {
+                if (e.takeDamage(p.damage, player)) enemies.splice(j, 1);
+                else if (e.takeDamage(p.damage, player)) enemies.splice(j, 1);
+                p.hitEnemies.add(e);
+              }
+            }
+            if (
+              activeBoss &&
+              !p.hitEnemies.has(activeBoss) &&
+              AABBCollision(p, activeBoss)
+            ) {
+              if (activeBoss.takeDamage(p.damage, player)) {
+                activeBoss = null;
+                enemySpawnTimer = Math.max(0, enemySpawnInterval - 2000);
+              }
+              p.hitEnemies.add(activeBoss);
+            }
+          }
+        }
+      }
+      function drawGame() {
+        ctx.save();
+        if (screenShakeMagnitude > 0) {
+          const dx = (Math.random() - 0.5) * screenShakeMagnitude * 2;
+          const dy = (Math.random() - 0.5) * screenShakeMagnitude * 2;
+          ctx.translate(dx, dy);
+        }
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        drawCaveBackground(ctx);
+        ctx.fillStyle = "#3A2D27";
+        ctx.fillRect(
+          0,
+          GROUND_HEIGHT,
+          canvas.width,
+          canvas.height - GROUND_HEIGHT
+        );
+        terrainPlatforms.forEach((plat) => {
+          ctx.fillStyle = plat.color;
+          ctx.fillRect(plat.x, plat.y, plat.width, plat.height);
+        });
+        blocks.forEach((b) => b.draw(ctx));
+        pets.forEach((p) => p.draw(ctx));
+        if (player) player.draw(ctx);
+        enemies.forEach((e) => e.draw(ctx));
+        if (activeBoss) activeBoss.draw(ctx);
+        projectiles.forEach((p) => p.draw(ctx));
+        floatingTexts.forEach((ft) => ft.draw(ctx));
+        if (screenFlashAlpha > 0) {
+          ctx.fillStyle = `rgba(255, 255, 220, ${
+            screenFlashAlpha * (screenFlashDuration / 200)
+          })`;
+          ctx.fillRect(0, 0, canvas.width, canvas.height);
+        }
+        ctx.restore();
+        if (player) {
+          ctx.fillStyle = "#500";
+          ctx.fillRect(10, 10, 200, 20);
+          ctx.fillStyle = "#32CD32";
+          ctx.fillRect(10, 10, (player.hp / player.maxHp) * 200, 20);
+          ctx.strokeStyle = "#FFF";
+          ctx.strokeRect(10, 10, 200, 20);
+          ctx.fillStyle = "#FFF";
+          ctx.font = "14px Segoe UI";
+          ctx.fillText(
+            `${player.hp.toFixed(0)} / ${player.maxHp.toFixed(0)}`,
+            15,
+            25
+          );
+          ctx.fillStyle = "#005";
+          ctx.fillRect(10, 35, 200, 15);
+          ctx.fillStyle = "#1E90FF";
+          ctx.fillRect(10, 35, (player.xp / player.maxXp) * 200, 15);
+          ctx.strokeStyle = "#FFF";
+          ctx.strokeRect(10, 35, 200, 15);
+          ctx.fillStyle = "#FFF";
+          ctx.font = "12px Segoe UI";
+          ctx.fillText(
+            `XP: ${player.xp.toFixed(0)} / ${player.maxXp.toFixed(0)}`,
+            15,
+            47
+          );
+          ctx.fillStyle = "#FFF";
+          ctx.font = "16px Segoe UI";
+          ctx.fillText(`Level: ${player.level}`, 10, 70);
+          ctx.textAlign = "right";
+          ctx.fillText(`Score: ${player.score}`, canvas.width - 10, 25);
+          ctx.fillText(
+            `Time: ${gameTimeSurvived.toFixed(1)}s`,
+            canvas.width - 10,
+            45
+          );
+          ctx.textAlign = "left";
+        }
+        if (activeBoss) {
+          // NEW: Display Boss Name
+          ctx.fillStyle = "#FF4500"; // OrangeRed, prominent
+          ctx.font =
+            'bold 38px "Segoe UI", Tahoma, Geneva, Verdana, sans-serif';
+          ctx.textAlign = "center";
+          ctx.strokeStyle = "black";
+          ctx.lineWidth = 2;
+          ctx.strokeText("DEVORADOR", canvas.width / 2, 55);
+          ctx.fillText("DEVORADOR", canvas.width / 2, 55);
+          ctx.textAlign = "left"; // Reset
+        }
+      }
+      function CircRectCollision(ci, re) {
+        let tX = ci.x + ci.radius,
+          tY = ci.y + ci.radius;
+        if (tX < re.x) tX = re.x;
+        else if (tX > re.x + re.width) tX = re.x + re.width;
+        if (tY < re.y) tY = re.y;
+        else if (tY > re.y + re.height) tY = re.y + re.height;
+        let dX = ci.x + ci.radius - tX,
+          dY = ci.y + ci.radius - tY;
+        return Math.sqrt(dX * dX + dY * dY) <= ci.radius;
+      }
+      function AABBCollision(r1, r2) {
+        return (
+          r1.x < r2.x + r2.width &&
+          r1.x + r1.width > r2.x &&
+          r1.y < r2.y + r2.height &&
+          r1.y + r1.height > r2.y
+        );
+      }
+      function presentUpgradeChoices() {
+        upgradeScreen.style.display = "flex";
+        upgradeOptionsContainer.innerHTML = "";
+        let choices = [],
+          tempAvail = [...availableUpgrades];
+        if (player.hasRevive)
+          tempAvail = tempAvail.filter((u) => u.name !== "Immortal");
+        const numChoices = Math.min(player.upgradeChoices, tempAvail.length);
+        for (let i = 0; i < numChoices; i++) {
+          const rIdx = Math.floor(Math.random() * tempAvail.length);
+          choices.push(tempAvail[rIdx]);
+          tempAvail.splice(rIdx, 1);
+        }
+        choices.forEach((upg) => {
+          const oD = document.createElement("div");
+          oD.classList.add("upgrade-option");
+          const nS = document.createElement("span");
+          nS.classList.add("upgrade-name");
+          nS.textContent = upg.name;
+          const dS = document.createElement("span");
+          dS.classList.add("upgrade-desc");
+          dS.textContent = upg.description;
+          oD.appendChild(nS);
+          oD.appendChild(document.createElement("br"));
+          oD.appendChild(dS);
+          oD.onclick = () => selectUpgrade(upg);
+          upgradeOptionsContainer.appendChild(oD);
+        });
+      }
+      function selectUpgrade(upgrade) {
+        upgrade.apply(player);
+        if (upgrade.name === "Immortal" && player.hasRevive)
+          availableUpgrades = availableUpgrades.filter(
+            (u) => u.name !== "Immortal"
+          );
+        upgradeScreen.style.display = "none";
+        gameState = "playing";
+        lastTime = performance.now();
+      }
+      function gameOver() {
+        gameState = "gameOver";
+        gameOverScreen.style.display = "flex";
+        finalScoreDisplay.textContent = `Score: ${player ? player.score : 0}`;
+        finalTimeDisplay.textContent = `Time Survived: ${gameTimeSurvived.toFixed(
+          1
+        )}s`;
+      }
+
+      init();
+      requestAnimationFrame(gameLoop);
+    </script>
+  </body>
+</html>

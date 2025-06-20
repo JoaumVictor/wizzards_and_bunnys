@@ -1,0 +1,1270 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>Wizard Platformer Deluxe</title>
+    <style>
+      body {
+        margin: 0;
+        background-color: #1a1a1a;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        height: 100vh;
+        overflow: hidden;
+      }
+      canvas {
+        border: 1px solid #444;
+        background-color: #282828;
+      } /* Slightly lighter bg */
+      #upgradeScreen {
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        background-color: rgba(
+          10,
+          10,
+          20,
+          0.9
+        ); /* Darker, bluer upgrade screen */
+        color: white;
+        padding: 25px;
+        border: 2px solid #778899; /* LightSlateGray border */
+        border-radius: 12px;
+        display: none;
+        flex-direction: column;
+        align-items: center;
+        font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif; /* Nicer font */
+        z-index: 100;
+        box-shadow: 0 0 15px rgba(120, 150, 255, 0.3);
+      }
+      #upgradeScreen h2 {
+        margin-top: 0;
+        color: #add8e6;
+      } /* LightBlue title */
+      .upgrade-option {
+        background-color: #333a45;
+        border: 1px solid #5c677a;
+        padding: 12px 18px;
+        margin: 10px 0;
+        cursor: pointer;
+        border-radius: 6px;
+        width: 320px;
+        text-align: left;
+        transition: background-color 0.2s ease, transform 0.1s ease;
+      }
+      .upgrade-option:hover {
+        background-color: #4a5463;
+        transform: scale(1.02);
+      }
+      .upgrade-name {
+        font-weight: bold;
+        font-size: 1.15em;
+        color: #e0e0ff;
+      }
+      .upgrade-desc {
+        font-size: 0.9em;
+        color: #b0c4de;
+        margin-top: 4px;
+        display: block;
+      } /* LightSteelBlue */
+      #gameOverScreen {
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        background-color: rgba(20, 0, 0, 0.9);
+        color: white;
+        padding: 30px;
+        border: 2px solid #ff6347; /* Tomato border */
+        border-radius: 10px;
+        display: none;
+        flex-direction: column;
+        align-items: center;
+        font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+        z-index: 100;
+        text-align: center;
+        box-shadow: 0 0 15px rgba(255, 80, 80, 0.4);
+      }
+      #gameOverScreen h2 {
+        color: #ff7f50;
+      } /* Coral */
+      #gameOverScreen button {
+        padding: 12px 25px;
+        font-size: 1.05em;
+        margin-top: 25px;
+        cursor: pointer;
+        background-color: #3cb371; /* MediumSeaGreen */
+        border: none;
+        color: white;
+        border-radius: 6px;
+        transition: background-color 0.2s ease;
+      }
+      #gameOverScreen button:hover {
+        background-color: #2e8b57;
+      } /* SeaGreen */
+    </style>
+  </head>
+  <body>
+    <canvas id="gameCanvas"></canvas>
+    <div id="upgradeScreen">
+      <h2>Level Up! Choose an Upgrade:</h2>
+      <div id="upgradeOptionsContainer"></div>
+    </div>
+    <div id="gameOverScreen">
+      <h2>Game Over</h2>
+      <p id="finalScore">Score: 0</p>
+      <p id="finalTime">Time Survived: 0s</p>
+      <button onclick="restartGame()">Restart</button>
+    </div>
+
+    <script>
+      const canvas = document.getElementById("gameCanvas");
+      const ctx = canvas.getContext("2d");
+      const upgradeScreen = document.getElementById("upgradeScreen");
+      const upgradeOptionsContainer = document.getElementById(
+        "upgradeOptionsContainer"
+      );
+      const gameOverScreen = document.getElementById("gameOverScreen");
+      const finalScoreDisplay = document.getElementById("finalScore");
+      const finalTimeDisplay = document.getElementById("finalTime");
+
+      canvas.width = 800;
+      canvas.height = 600;
+
+      const GROUND_HEIGHT = canvas.height - 50;
+      // New Height Logic Constants:
+      const ENEMY_STOP_Y_LINE = canvas.height * 0.4; // Bottom of enemies will stop at or slightly above this line
+      const BLOCK_SPAWN_MIN_Y = canvas.height * 0.55; // Top Y for block spawning
+      const BLOCK_SPAWN_MAX_Y = canvas.height * 0.7; // Bottom Y for block spawning (block's top-left corner)
+
+      let player, enemies, projectiles, blocks, floatingTexts, terrainPlatforms;
+      let keys = {};
+      let mouse = { x: 0, y: 0, down: false };
+      let score = 0;
+      let gameTime = 0;
+      let enemySpawnTimer = 0;
+      let enemySpawnInterval = 3000;
+      let blockSpawnTimer = 0;
+      let blockSpawnInterval = 15000;
+      let gameState = "playing";
+      let gameTimeSurvived = 0;
+      let deltaTime = 0;
+      let lastTime = 0;
+
+      // --- UPGRADES (Same as before) ---
+      const allUpgrades = [
+        {
+          name: "Catalyst",
+          description: "+2 Projectile Damage",
+          apply: (p) => (p.projectileDamage += 2),
+        },
+        {
+          name: "Eyesight",
+          description: "+5% Critical Chance",
+          apply: (p) => (p.critChance = Math.min(1, p.critChance + 0.05)),
+        },
+        {
+          name: "Growth",
+          description: "+20 Max HP",
+          apply: (p) => {
+            p.maxHp += 20;
+            p.hp = Math.min(p.hp + 20, p.maxHp);
+          },
+        },
+        {
+          name: "Impulse",
+          description: "+25% Jump Height",
+          apply: (p) => (p.jumpStrength *= 1.25),
+        },
+        {
+          name: "Renew",
+          description: "Heal to Full HP",
+          apply: (p) => (p.hp = p.maxHp),
+        },
+        {
+          name: "Resist",
+          description: "+5% Defense",
+          apply: (p) => (p.defense = Math.min(0.75, p.defense + 0.05)),
+        },
+        {
+          name: "Resonance",
+          description: "+15% Attack Speed",
+          apply: (p) =>
+            (p.attackSpeedCooldown = Math.max(
+              50,
+              p.attackSpeedCooldown * 0.85
+            )),
+        },
+        {
+          name: "Souls",
+          description: "1% Chance +5 XP Soul on Kill",
+          apply: (p) => (p.soulChance += 0.01),
+        },
+        {
+          name: "Stability",
+          description: "Projectiles survive 1 more hit",
+          apply: (p) => p.projectileHits++,
+        },
+        {
+          name: "Swift",
+          description: "+15% Movement Speed",
+          apply: (p) => (p.moveSpeed *= 1.15),
+        },
+        {
+          name: "Charge",
+          description: "+20% Projectile Size",
+          apply: (p) => (p.projectileSizeMultiplier += 0.2),
+        },
+        {
+          name: "Cloak",
+          description: "+20% Invulnerability Duration",
+          apply: (p) => (p.invincibilityDuration *= 1.2),
+        },
+        {
+          name: "Gush",
+          description: "+1 Extra Jump",
+          apply: (p) => p.maxJumps++,
+        },
+        {
+          name: "Leech",
+          description: "Gain 2% Life Steal",
+          apply: (p) => (p.lifeSteal += 0.02),
+        },
+        {
+          name: "Orb",
+          description: "5% Chance +5 HP Orb on Kill",
+          apply: (p) => (p.healingOrbChance += 0.05),
+        },
+        {
+          name: "Immortal",
+          description: "1-Time Revive (50% HP)",
+          apply: (p) => {
+            if (!p.hasRevive) p.hasRevive = true;
+          },
+        },
+        {
+          name: "Appraisal",
+          description: "+1 Upgrade Choice",
+          apply: (p) => p.upgradeChoices++,
+        },
+      ];
+      let availableUpgrades = [...allUpgrades];
+
+      // --- CLASSES ---
+      class Entity {
+        constructor(x, y, width, height, color) {
+          this.x = x;
+          this.y = y;
+          this.width = width;
+          this.height = height;
+          this.color = color;
+          this.vx = 0;
+          this.vy = 0;
+        }
+        draw(ctx) {
+          ctx.fillStyle = this.color;
+          ctx.fillRect(this.x, this.y, this.width, this.height);
+        }
+        update(dt) {
+          this.x += this.vx * dt;
+          this.y += this.vy * dt;
+        }
+      }
+
+      class Player extends Entity {
+        constructor(x, y) {
+          // Collision box remains simple
+          super(x, y, 22, 42, "#4682B4"); // SteelBlue robe
+          this.staffColor = "#8B4513";
+          this.staffLength = 45;
+          this.staffWidth = 5;
+
+          this.hp = 100;
+          this.maxHp = 100;
+          this.xp = 0;
+          this.maxXp = 100;
+          this.level = 1;
+          this.score = 0;
+
+          this.moveSpeed = 250;
+          this.jumpStrength = 450;
+          this.gravity = 1000;
+          this.onGround = false;
+          this.jumpsLeft = 1;
+          this.maxJumps = 1;
+          this.lastY = this.y; // For platform collision
+
+          this.shootCooldown = 0;
+          this.attackSpeedCooldown = 300;
+          this.projectileDamage = 10;
+          this.projectileSpeed = 500;
+          this.projectileSizeMultiplier = 1.0;
+          this.projectileHits = 1;
+
+          this.isInvincible = false;
+          this.invincibilityTimer = 0;
+          this.invincibilityDuration = 500;
+
+          this.critChance = 0.05;
+          this.defense = 0;
+          this.soulChance = 0;
+          this.lifeSteal = 0;
+          this.healingOrbChance = 0;
+          this.hasRevive = false;
+          this.upgradeChoices = 3;
+        }
+
+        update(dtSeconds) {
+          this.lastY = this.y; // Store previous frame's y
+
+          this.vx = 0;
+          if (keys["a"] || keys["A"]) this.vx = -this.moveSpeed;
+          if (keys["d"] || keys["D"]) this.vx = this.moveSpeed;
+          this.x += this.vx * dtSeconds;
+
+          if (!this.onGround) this.vy += this.gravity * dtSeconds;
+          this.y += this.vy * dtSeconds;
+
+          // --- Ground and Platform Collision ---
+          let onAnySurface = false;
+          // Main ground
+          if (this.y + this.height >= GROUND_HEIGHT && this.vy >= 0) {
+            this.y = GROUND_HEIGHT - this.height;
+            this.vy = 0;
+            onAnySurface = true;
+          }
+          // Terrain platforms
+          for (const plat of terrainPlatforms) {
+            const playerBottom = this.y + this.height;
+            const playerLastBottom = this.lastY + this.height;
+
+            if (
+              this.x + this.width > plat.x &&
+              this.x < plat.x + plat.width && // Horizontal overlap
+              playerLastBottom <= plat.y && // Was above or at platform level
+              playerBottom >= plat.y && // Is now at or below platform level
+              this.vy >= 0
+            ) {
+              // Is moving downwards or stationary
+              this.y = plat.y - this.height;
+              this.vy = 0;
+              onAnySurface = true;
+              break;
+            }
+          }
+
+          if (onAnySurface) {
+            this.onGround = true;
+            this.jumpsLeft = this.maxJumps;
+          } else {
+            this.onGround = false;
+          }
+          // --- End Ground Collision ---
+
+          if (this.x < 0) this.x = 0;
+          if (this.x + this.width > canvas.width)
+            this.x = canvas.width - this.width;
+
+          if (this.shootCooldown > 0) this.shootCooldown -= dtSeconds * 1000;
+          if (mouse.down && this.shootCooldown <= 0) {
+            this.shoot();
+            this.shootCooldown = this.attackSpeedCooldown;
+          }
+
+          if (this.isInvincible) {
+            this.invincibilityTimer -= dtSeconds * 1000;
+            if (this.invincibilityTimer <= 0) this.isInvincible = false;
+          }
+        }
+
+        draw(ctx) {
+          const drawPlayer = () => {
+            const centerX = this.x + this.width / 2;
+            const bottomY = this.y + this.height;
+
+            // Robe (main body)
+            const robeHeight = this.height * 0.7;
+            const robeTopWidth = this.width * 0.8;
+            const robeBottomWidth = this.width;
+            const robeTopY = bottomY - robeHeight;
+            ctx.fillStyle = this.color; // e.g., '#4682B4' (SteelBlue)
+            ctx.beginPath();
+            ctx.moveTo(centerX - robeBottomWidth / 2, bottomY);
+            ctx.lineTo(centerX + robeBottomWidth / 2, bottomY);
+            ctx.lineTo(centerX + robeTopWidth / 2, robeTopY);
+            ctx.lineTo(centerX - robeTopWidth / 2, robeTopY);
+            ctx.closePath();
+            ctx.fill();
+
+            // Head
+            const headRadius = this.width * 0.3;
+            const headCenterY = robeTopY - headRadius * 0.8; // Slightly overlap with robe
+            ctx.fillStyle = "#FFE4C4"; // Bisque (skin tone)
+            ctx.beginPath();
+            ctx.arc(centerX, headCenterY, headRadius, 0, Math.PI * 2);
+            ctx.fill();
+
+            // Hat
+            const hatBaseRadius = headRadius * 1.3;
+            const hatHeight = this.height * 0.5;
+            const hatTipY = headCenterY - headRadius - hatHeight;
+            const hatBaseY = headCenterY - headRadius * 0.5; // Hat base slightly lower on head
+            ctx.fillStyle = "#6A0DAD"; // Purple hat
+            ctx.beginPath();
+            ctx.moveTo(centerX, hatTipY); // Tip of hat
+            ctx.lineTo(centerX - hatBaseRadius, hatBaseY);
+            ctx.lineTo(centerX + hatBaseRadius, hatBaseY);
+            ctx.closePath();
+            ctx.fill();
+            // Hat brim/band (optional)
+            ctx.fillStyle = "#FFD700"; // Gold band
+            ctx.fillRect(
+              centerX - hatBaseRadius,
+              hatBaseY - 2,
+              hatBaseRadius * 2,
+              4
+            );
+          };
+
+          if (
+            this.isInvincible &&
+            Math.floor(this.invincibilityTimer / 100) % 2 === 0
+          ) {
+            // Flash effect: briefly don't draw or draw semi-transparent
+          } else {
+            drawPlayer();
+          }
+
+          // Staff (drawn on top or as part of player, depending on preference)
+          const staffVisualX = this.x + this.width / 2;
+          const staffVisualY = this.y + this.height * 0.6; // Hand-ish level
+          const angle = Math.atan2(
+            mouse.y - staffVisualY,
+            mouse.x - staffVisualX
+          );
+
+          ctx.save();
+          ctx.translate(staffVisualX, staffVisualY);
+          ctx.rotate(angle);
+          ctx.fillStyle = this.staffColor;
+          ctx.fillRect(
+            0,
+            -this.staffWidth / 2,
+            this.staffLength,
+            this.staffWidth
+          );
+          ctx.fillStyle = "#FFD700"; // Gold orb at tip
+          ctx.beginPath();
+          ctx.arc(this.staffLength, 0, this.staffWidth * 1.2, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.restore();
+        }
+
+        jump() {
+          /* same */ if (this.jumpsLeft > 0) {
+            this.vy = -this.jumpStrength;
+            this.onGround = false;
+            this.jumpsLeft--;
+          }
+        }
+        shoot() {
+          const pX = this.x + this.width / 2,
+            pY = this.y + this.height / 2,
+            ang = Math.atan2(mouse.y - pY, mouse.x - pX),
+            pvx = Math.cos(ang) * this.projectileSpeed,
+            pvy = Math.sin(ang) * this.projectileSpeed;
+          let dmg = this.projectileDamage,
+            iC = 0;
+          if (Math.random() < this.critChance) {
+            dmg *= 2;
+            iC = 1;
+          }
+          projectiles.push(
+            new Projectile(
+              pX,
+              pY,
+              pvx,
+              pvy,
+              dmg,
+              "player",
+              this.projectileSizeMultiplier,
+              this.projectileHits,
+              iC
+            )
+          );
+        }
+        takeDamage(amount) {
+          /* same */ if (this.isInvincible) return;
+          const actualDmg = Math.max(1, amount * (1 - this.defense));
+          this.hp -= actualDmg;
+          floatingTexts.push(
+            new FloatingText(
+              this.x + this.width / 2,
+              this.y,
+              `-${actualDmg.toFixed(0)}`,
+              "red"
+            )
+          );
+          if (this.hp <= 0) {
+            this.hp = 0;
+            if (this.hasRevive) {
+              this.hp = this.maxHp * 0.5;
+              this.hasRevive = 0;
+              floatingTexts.push(
+                new FloatingText(
+                  this.x + this.width / 2,
+                  this.y - 20,
+                  "REVIVED!",
+                  "gold",
+                  2000
+                )
+              );
+              this.isInvincible = 1;
+              this.invincibilityTimer = 2000;
+            } else {
+              gameOver();
+            }
+          } else {
+            this.isInvincible = 1;
+            this.invincibilityTimer = this.invincibilityDuration;
+          }
+        }
+        gainXp(amount) {
+          /* same */ this.xp += amount;
+          this.score += amount;
+          floatingTexts.push(
+            new FloatingText(
+              this.x + this.width / 2,
+              this.y,
+              `+${amount}XP`,
+              "lightblue",
+              1e3
+            )
+          );
+          if (this.xp >= this.maxXp) this.levelUp();
+        }
+        levelUp() {
+          /* same */ this.level++;
+          this.xp = 0;
+          this.maxXp = Math.floor(this.maxXp * 1.5);
+          this.hp = this.maxHp;
+          gameState = "levelUp";
+          presentUpgradeChoices();
+          floatingTexts.push(
+            new FloatingText(
+              canvas.width / 2,
+              canvas.height / 2 - 30,
+              `LEVEL UP!`,
+              "gold",
+              2500,
+              36
+            )
+          );
+        }
+        heal(amount) {
+          /* same */ this.hp = Math.min(this.maxHp, this.hp + amount);
+          floatingTexts.push(
+            new FloatingText(
+              this.x + this.width / 2,
+              this.y,
+              `+${amount}HP`,
+              "lime",
+              1e3
+            )
+          );
+        }
+      }
+
+      class Projectile extends Entity {
+        /* same as before */ constructor(
+          x,
+          y,
+          vx,
+          vy,
+          d,
+          o,
+          sM = 1,
+          h = 1,
+          iC = 0
+        ) {
+          const bR = 5,
+            r = bR * sM;
+          super(
+            x - r,
+            y - r,
+            r * 2,
+            r * 2,
+            o === "player" ? (iC ? "#FFA500" : "#00FF00") : "#FF4500"
+          );
+          this.radius = r;
+          this.vx = vx;
+          this.vy = vy;
+          this.damage = d;
+          this.owner = o;
+          this.hitsLeft = h;
+          this.isCrit = iC;
+        }
+        draw(c) {
+          c.fillStyle = this.color;
+          c.beginPath();
+          c.arc(
+            this.x + this.radius,
+            this.y + this.radius,
+            this.radius,
+            0,
+            Math.PI * 2
+          );
+          c.fill();
+          if (this.isCrit && this.owner === "player") {
+            c.strokeStyle = "#FF4500";
+            c.lineWidth = 2;
+            c.stroke();
+          }
+        }
+        update(dt) {
+          this.x += this.vx * dt;
+          this.y += this.vy * dt;
+        }
+        onHit() {
+          this.hitsLeft--;
+          return this.hitsLeft <= 0;
+        }
+      }
+
+      class Enemy extends Entity {
+        constructor(x, y, playerLevel) {
+          // Added playerLevel
+          const sizeMod = Math.floor(gameTimeSurvived / 30);
+          const baseSize = 25 + sizeMod * 2;
+          super(x, y, baseSize, baseSize * 0.8, "#CD5C5C"); // IndianRed, slightly wider than tall for monster shape
+
+          this.xpValue = 10 + Math.floor(gameTimeSurvived / 30) * 5;
+
+          // Falling Speed Dynamics
+          this.baseFallSpeed = 25; // Slower base fall speed
+          const levelTier = Math.max(0, Math.floor((playerLevel - 1) / 3));
+          this.vy = this.baseFallSpeed + levelTier * 10; // Increase fall speed every 3 player levels
+
+          this.shootCooldown = 0;
+          this.attackSpeed =
+            2800 - Math.min(1800, Math.floor(gameTimeSurvived / 12) * 100);
+          this.hasStoppedFalling = false;
+          this.projectileSpeed = 180 + Math.floor(gameTimeSurvived / 45) * 20;
+          this.damage = 5 + Math.floor(gameTimeSurvived / 20) * 2;
+
+          // Health based on 2 hits from player
+          this.maxPlayerHits = 2;
+          this.currentPlayerHits = 0;
+        }
+
+        update(dtSeconds) {
+          if (!this.hasStoppedFalling) {
+            this.y += this.vy * dtSeconds;
+            // Use ENEMY_STOP_Y_LINE for enemy's bottom edge
+            if (this.y + this.height >= ENEMY_STOP_Y_LINE) {
+              this.y = ENEMY_STOP_Y_LINE - this.height;
+              this.hasStoppedFalling = true;
+              this.vy = 0;
+            }
+          } else {
+            this.shootCooldown -= dtSeconds * 1000;
+            if (this.shootCooldown <= 0 && player && player.hp > 0) {
+              this.shoot();
+              this.shootCooldown =
+                this.attackSpeed * (0.8 + Math.random() * 0.4);
+            }
+          }
+        }
+
+        draw(ctx) {
+          const centerX = this.x + this.width / 2;
+          const centerY = this.y + this.height / 2;
+          const bodyWidthRadius = this.width * 0.4;
+          const bodyHeightRadius = this.height * 0.45;
+
+          // Wings (Triangles - simplified)
+          ctx.fillStyle = "#696969"; // DimGray wings
+          const wingHeight = this.height * 0.8;
+          const wingSpan = this.width * 0.6;
+          // Left Wing
+          ctx.beginPath();
+          ctx.moveTo(
+            centerX - bodyWidthRadius * 0.3,
+            centerY - bodyHeightRadius * 0.2
+          ); // Body attach point
+          ctx.lineTo(
+            centerX - bodyWidthRadius - wingSpan,
+            centerY - wingHeight / 2
+          ); // Outer top
+          ctx.lineTo(
+            centerX - bodyWidthRadius - wingSpan * 0.5,
+            centerY + wingHeight / 2
+          ); // Outer bottom
+          ctx.closePath();
+          ctx.fill();
+          // Right Wing
+          ctx.beginPath();
+          ctx.moveTo(
+            centerX + bodyWidthRadius * 0.3,
+            centerY - bodyHeightRadius * 0.2
+          ); // Body attach point
+          ctx.lineTo(
+            centerX + bodyWidthRadius + wingSpan,
+            centerY - wingHeight / 2
+          ); // Outer top
+          ctx.lineTo(
+            centerX + bodyWidthRadius + wingSpan * 0.5,
+            centerY + wingHeight / 2
+          ); // Outer bottom
+          ctx.closePath();
+          ctx.fill();
+
+          // Body (Ellipse)
+          ctx.fillStyle = this.color;
+          ctx.beginPath();
+          ctx.ellipse(
+            centerX,
+            centerY,
+            bodyWidthRadius,
+            bodyHeightRadius,
+            0,
+            0,
+            Math.PI * 2
+          );
+          ctx.fill();
+
+          // Eye
+          ctx.fillStyle = "#FFFF00"; // Yellow eye
+          const eyeRadius = bodyWidthRadius * 0.35;
+          ctx.beginPath();
+          ctx.arc(
+            centerX,
+            centerY - bodyHeightRadius * 0.1,
+            eyeRadius,
+            0,
+            Math.PI * 2
+          );
+          ctx.fill();
+          ctx.fillStyle = "#000000"; // Pupil
+          const pupilRadius = eyeRadius * 0.5;
+          ctx.beginPath();
+          ctx.arc(
+            centerX,
+            centerY - bodyHeightRadius * 0.1,
+            pupilRadius,
+            0,
+            Math.PI * 2
+          );
+          ctx.fill();
+        }
+
+        shoot() {
+          /* same */ const pX = this.x + this.width / 2,
+            pY = this.y + this.height / 2,
+            ang = Math.atan2(
+              player.y + player.height / 2 - pY,
+              player.x + player.width / 2 - pX
+            ),
+            pvx = Math.cos(ang) * this.projectileSpeed,
+            pvy = Math.sin(ang) * this.projectileSpeed;
+          projectiles.push(
+            new Projectile(pX, pY, pvx, pvy, this.damage, "enemy")
+          );
+        }
+
+        takeDamage(projectileDamageValue, sourcePlayer) {
+          if (sourcePlayer) {
+            // Hit by player
+            this.currentPlayerHits++;
+            // Floating text can show "HIT!" or the damage value that contributed to the hit
+            floatingTexts.push(
+              new FloatingText(
+                this.x + this.width / 2,
+                this.y,
+                `-${projectileDamageValue.toFixed(0)}`,
+                "yellow",
+                800
+              )
+            );
+
+            if (sourcePlayer.lifeSteal > 0) {
+              const healedAmount = Math.max(
+                1,
+                Math.floor(projectileDamageValue * sourcePlayer.lifeSteal)
+              );
+              sourcePlayer.heal(healedAmount);
+            }
+
+            if (this.currentPlayerHits >= this.maxPlayerHits) {
+              sourcePlayer.gainXp(this.xpValue);
+              if (Math.random() < sourcePlayer.soulChance) {
+                sourcePlayer.gainXp(5);
+                floatingTexts.push(
+                  new FloatingText(
+                    this.x + this.width / 2,
+                    this.y - 20,
+                    `SOUL!`,
+                    "cyan",
+                    1500
+                  )
+                );
+              }
+              if (Math.random() < sourcePlayer.healingOrbChance) {
+                sourcePlayer.heal(5);
+                floatingTexts.push(
+                  new FloatingText(
+                    this.x + this.width / 2,
+                    this.y - 20,
+                    `ORB!`,
+                    "lightgreen",
+                    1500
+                  )
+                );
+              }
+              return true; // Died
+            }
+          }
+          return false; // Survived
+        }
+      }
+
+      class DestructibleBlock extends Entity {
+        /* same as before */ constructor(x, y) {
+          super(x, y, 60, 30, "#A0522D");
+          this.maxHp = 50;
+          this.hp = this.maxHp;
+        }
+        takeDamage(a) {
+          this.hp -= a;
+          const hpP = this.hp / this.maxHp;
+          if (hpP <= 0) return 1;
+          else if (hpP < 0.33) this.color = "#65200c";
+          else if (hpP < 0.66) this.color = "#823b1c";
+          return 0;
+        }
+        draw(c) {
+          super.draw(c);
+          c.strokeStyle = "rgba(0,0,0,0.5)";
+          c.lineWidth = 1;
+          const cr = Math.floor((1 - this.hp / this.maxHp) * 5);
+          for (let i = 0; i < cr && this.hp > 0; i++) {
+            c.beginPath();
+            c.moveTo(
+              this.x + Math.random() * this.width,
+              this.y + Math.random() * this.height
+            );
+            c.lineTo(
+              this.x + Math.random() * this.width,
+              this.y + Math.random() * this.height
+            );
+            c.stroke();
+          }
+        }
+      }
+      class FloatingText {
+        /* same as before */ constructor(x, y, t, c, du = 1e3, s = 16) {
+          this.x = x;
+          this.y = y;
+          this.text = t;
+          this.color = c;
+          this.duration = du;
+          this.alpha = 1;
+          this.vy = -30;
+          this.size = s;
+        }
+        update(dt) {
+          this.y += this.vy * dt;
+          this.duration -= dt * 1e3;
+          this.alpha = Math.max(0, this.duration / 1e3);
+        }
+        draw(c) {
+          c.fillStyle = this.color;
+          c.globalAlpha = this.alpha;
+          c.font = `bold ${this.size}px Arial`;
+          c.textAlign = "center";
+          c.fillText(this.text, this.x, this.y);
+          c.textAlign = "left";
+          c.globalAlpha = 1;
+        }
+      }
+
+      // --- TERRAIN ---
+      function createTerrain() {
+        terrainPlatforms = [];
+        terrainPlatforms.push({
+          x: 150,
+          y: GROUND_HEIGHT - 40,
+          width: 180,
+          height: 40,
+          color: "#556B2F",
+        }); // DarkOliveGreen
+        terrainPlatforms.push({
+          x: canvas.width - 330,
+          y: GROUND_HEIGHT - 60,
+          width: 220,
+          height: 60,
+          color: "#556B2F",
+        });
+        terrainPlatforms.push({
+          x: canvas.width / 2 - 75,
+          y: GROUND_HEIGHT - 25,
+          width: 150,
+          height: 25,
+          color: "#556B2F",
+        });
+      }
+
+      // --- GAME LOGIC ---
+      function init() {
+        createTerrain(); // Create terrain first
+        player = new Player(canvas.width / 2 - 11, GROUND_HEIGHT - 42); // Adjusted for new player size
+        enemies = [];
+        projectiles = [];
+        blocks = [];
+        floatingTexts = [];
+        score = 0;
+        gameTime = 0;
+        gameTimeSurvived = 0;
+        enemySpawnTimer = 0;
+        enemySpawnInterval = 3500; // Slightly increased initial spawn time
+        blockSpawnTimer = 0;
+        blockSpawnInterval = 15000;
+
+        // Reset player (condensed)
+        let p = player;
+        p.hp = p.maxHp = 100;
+        p.xp = 0;
+        p.maxXp = 100;
+        p.level = 1;
+        p.score = 0;
+        p.moveSpeed = 250;
+        p.jumpStrength = 450;
+        p.maxJumps = 1;
+        p.attackSpeedCooldown = 300;
+        p.projectileDamage = 10;
+        p.projectileSizeMultiplier = 1;
+        p.projectileHits = 1;
+        p.critChance = 0.05;
+        p.defense = 0;
+        p.soulChance = 0;
+        p.invincibilityDuration = 500;
+        p.lifeSteal = 0;
+        p.healingOrbChance = 0;
+        p.hasRevive = 0;
+        p.upgradeChoices = 3;
+
+        availableUpgrades = [...allUpgrades];
+        gameState = "playing";
+        upgradeScreen.style.display = "none";
+        gameOverScreen.style.display = "none";
+      }
+
+      function restartGame() {
+        init();
+        lastTime = 0;
+        requestAnimationFrame(gameLoop);
+      }
+
+      function updateGame(dtSeconds) {
+        if (gameState !== "playing") return;
+        gameTime += dtSeconds * 1000;
+        gameTimeSurvived += dtSeconds;
+        if (player) player.update(dtSeconds);
+
+        enemySpawnTimer += dtSeconds * 1000;
+        if (enemySpawnTimer >= enemySpawnInterval) {
+          spawnEnemy();
+          enemySpawnTimer = 0;
+          // Enemy Spawn Balance: Slower increase after level 3
+          if (player && player.level <= 3) {
+            enemySpawnInterval = Math.max(600, enemySpawnInterval * 0.96);
+          } else {
+            enemySpawnInterval = Math.max(800, enemySpawnInterval * 0.985); // Slower reduction and higher minimum
+          }
+        }
+
+        blockSpawnTimer += dtSeconds * 1000;
+        if (blockSpawnTimer >= blockSpawnInterval) {
+          spawnBlock();
+          blockSpawnTimer = 0;
+          blockSpawnInterval = 12000 + Math.random() * 8000;
+        }
+
+        enemies.forEach((e) => e.update(dtSeconds));
+        for (let i = projectiles.length - 1; i >= 0; i--) {
+          projectiles[i].update(dtSeconds);
+          if (
+            projectiles[i].x < -50 ||
+            projectiles[i].x > canvas.width + 50 ||
+            projectiles[i].y < -50 ||
+            projectiles[i].y > canvas.height + 50
+          )
+            projectiles.splice(i, 1);
+        }
+        for (let i = floatingTexts.length - 1; i >= 0; i--) {
+          floatingTexts[i].update(dtSeconds);
+          if (floatingTexts[i].duration <= 0) floatingTexts.splice(i, 1);
+        }
+        handleCollisions();
+      }
+
+      function spawnEnemy() {
+        const x = Math.random() * (canvas.width - 40) + 5;
+        if (player) enemies.push(new Enemy(x, -30, player.level)); // Pass player.level
+      }
+
+      function spawnBlock() {
+        const numBlocks = 1 + Math.floor(Math.random() * 2); // Fewer blocks at a time
+        const clusterWidth = 250;
+        const startX =
+          canvas.width / 2 -
+          clusterWidth / 2 +
+          Math.random() * (clusterWidth - 60);
+
+        for (let i = 0; i < numBlocks; i++) {
+          // Spawn blocks within the defined Y range and clustered horizontally
+          const x = startX + (Math.random() - 0.5) * 100;
+          const y =
+            BLOCK_SPAWN_MIN_Y +
+            Math.random() * (BLOCK_SPAWN_MAX_Y - BLOCK_SPAWN_MIN_Y - 30); // -30 for block height
+
+          let canSpawn = true;
+          for (const b of blocks)
+            if (Math.abs(b.x - x) < 60 && Math.abs(b.y - y) < 30) {
+              canSpawn = 0;
+              break;
+            }
+          if (canSpawn) blocks.push(new DestructibleBlock(x, y));
+        }
+        if (blocks.length > 8) blocks.splice(0, blocks.length - 8); // Max 8 blocks
+      }
+
+      function AABBCollision(r1, r2) {
+        return (
+          r1.x < r2.x + r2.width &&
+          r1.x + r1.width > r2.x &&
+          r1.y < r2.y + r2.height &&
+          r1.y + r1.height > r2.y
+        );
+      }
+      function CircRectCollision(ci, re) {
+        let tX = ci.x + ci.radius,
+          tY = ci.y + ci.radius;
+        if (tX < re.x) tX = re.x;
+        else if (tX > re.x + re.width) tX = re.x + re.width;
+        if (tY < re.y) tY = re.y;
+        else if (tY > re.y + re.height) tY = re.y + re.height;
+        let dX = ci.x + ci.radius - tX,
+          dY = ci.y + ci.radius - tY;
+        return Math.sqrt(dX * dX + dY * dY) <= ci.radius;
+      }
+
+      function handleCollisions() {
+        for (let i = projectiles.length - 1; i >= 0; i--) {
+          const p = projectiles[i];
+          if (!p) continue;
+          if (p.owner === "player") {
+            for (let j = enemies.length - 1; j >= 0; j--) {
+              const e = enemies[j];
+              if (CircRectCollision(p, e)) {
+                if (e.takeDamage(p.damage, player)) {
+                  enemies.splice(j, 1);
+                }
+                if (p.onHit()) {
+                  projectiles.splice(i, 1);
+                  break;
+                }
+              }
+            }
+            if (!projectiles[i]) continue;
+            for (let k = blocks.length - 1; k >= 0; k--) {
+              const b = blocks[k];
+              if (CircRectCollision(p, b)) {
+                if (b.takeDamage(p.damage * 0.6)) {
+                  blocks.splice(k, 1);
+                }
+                if (p.onHit()) {
+                  projectiles.splice(i, 1);
+                  break;
+                }
+              }
+            } // Player proj deal 60% damage to blocks
+          } else if (p.owner === "enemy") {
+            if (player && CircRectCollision(p, player)) {
+              player.takeDamage(p.damage);
+              projectiles.splice(i, 1);
+              continue;
+            }
+            if (!projectiles[i]) continue;
+            for (let k = blocks.length - 1; k >= 0; k--) {
+              const b = blocks[k];
+              if (CircRectCollision(p, b)) {
+                if (b.takeDamage(p.damage)) {
+                  blocks.splice(k, 1);
+                }
+                projectiles.splice(i, 1);
+                break;
+              }
+            }
+          }
+        }
+      }
+
+      function drawGame() {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        ctx.fillStyle = "#5F9EA0";
+        /* CadetBlue ground */ ctx.fillRect(
+          0,
+          GROUND_HEIGHT,
+          canvas.width,
+          canvas.height - GROUND_HEIGHT
+        );
+        terrainPlatforms.forEach((plat) => {
+          ctx.fillStyle = plat.color;
+          ctx.fillRect(plat.x, plat.y, plat.width, plat.height);
+        });
+        blocks.forEach((b) => b.draw(ctx));
+        if (player) player.draw(ctx);
+        enemies.forEach((e) => e.draw(ctx));
+        projectiles.forEach((p) => p.draw(ctx));
+        floatingTexts.forEach((ft) => ft.draw(ctx));
+        if (player) {
+          ctx.fillStyle = "#500";
+          ctx.fillRect(10, 10, 200, 20);
+          ctx.fillStyle = "#32CD32";
+          ctx.fillRect(10, 10, (player.hp / player.maxHp) * 200, 20);
+          ctx.strokeStyle = "#FFF";
+          ctx.strokeRect(10, 10, 200, 20);
+          ctx.fillStyle = "#FFF";
+          ctx.font = "14px Segoe UI";
+          ctx.fillText(
+            `${player.hp.toFixed(0)} / ${player.maxHp.toFixed(0)}`,
+            15,
+            25
+          );
+          ctx.fillStyle = "#005";
+          ctx.fillRect(10, 35, 200, 15);
+          ctx.fillStyle = "#1E90FF";
+          ctx.fillRect(10, 35, (player.xp / player.maxXp) * 200, 15);
+          ctx.strokeStyle = "#FFF";
+          ctx.strokeRect(10, 35, 200, 15);
+          ctx.fillStyle = "#FFF";
+          ctx.font = "12px Segoe UI";
+          ctx.fillText(
+            `XP: ${player.xp.toFixed(0)} / ${player.maxXp.toFixed(0)}`,
+            15,
+            47
+          );
+          ctx.fillStyle = "#FFF";
+          ctx.font = "16px Segoe UI";
+          ctx.fillText(`Level: ${player.level}`, 10, 70);
+          ctx.textAlign = "right";
+          ctx.fillText(`Score: ${player.score}`, canvas.width - 10, 25);
+          ctx.fillText(
+            `Time: ${gameTimeSurvived.toFixed(1)}s`,
+            canvas.width - 10,
+            45
+          );
+          ctx.textAlign = "left";
+        }
+      }
+
+      function presentUpgradeChoices() {
+        /* mostly same */ upgradeScreen.style.display = "flex";
+        upgradeOptionsContainer.innerHTML = "";
+        let choices = [],
+          tempAvail = [...availableUpgrades];
+        if (player.hasRevive)
+          tempAvail = tempAvail.filter((u) => u.name !== "Immortal");
+        const numChoices = Math.min(player.upgradeChoices, tempAvail.length);
+        for (let i = 0; i < numChoices; i++) {
+          const rIdx = Math.floor(Math.random() * tempAvail.length);
+          choices.push(tempAvail[rIdx]);
+          tempAvail.splice(rIdx, 1);
+        }
+        choices.forEach((upg) => {
+          const oD = document.createElement("div");
+          oD.classList.add("upgrade-option");
+          const nS = document.createElement("span");
+          nS.classList.add("upgrade-name");
+          nS.textContent = upg.name;
+          const dS = document.createElement("span");
+          dS.classList.add("upgrade-desc");
+          dS.textContent = upg.description;
+          oD.appendChild(nS);
+          oD.appendChild(document.createElement("br"));
+          oD.appendChild(dS);
+          oD.onclick = () => selectUpgrade(upg);
+          upgradeOptionsContainer.appendChild(oD);
+        });
+      }
+      function selectUpgrade(upgrade) {
+        upgrade.apply(player);
+        if (upgrade.name === "Immortal" && player.hasRevive)
+          availableUpgrades = availableUpgrades.filter(
+            (u) => u.name !== "Immortal"
+          );
+        upgradeScreen.style.display = "none";
+        gameState = "playing";
+        lastTime = performance.now();
+      }
+      function gameOver() {
+        gameState = "gameOver";
+        gameOverScreen.style.display = "flex";
+        finalScoreDisplay.textContent = `Score: ${player ? player.score : 0}`;
+        finalTimeDisplay.textContent = `Time Survived: ${gameTimeSurvived.toFixed(
+          1
+        )}s`;
+      }
+
+      // --- GAME LOOP ---
+      function gameLoop(timestamp) {
+        if (!timestamp) timestamp = 0;
+        if (lastTime === 0) {
+          lastTime = timestamp;
+          requestAnimationFrame(gameLoop);
+          return;
+        }
+        deltaTime = (timestamp - lastTime) / 1e3;
+        lastTime = timestamp;
+        deltaTime = Math.min(deltaTime, 0.1);
+        if (gameState === "playing") updateGame(deltaTime);
+        drawGame();
+        if (gameState !== "gameOver") requestAnimationFrame(gameLoop);
+      }
+
+      // Event Listeners (mostly same)
+      window.addEventListener("keydown", (e) => {
+        keys[e.key] = true;
+        if (
+          (e.key === " " || e.key === "Spacebar") &&
+          gameState === "playing" &&
+          player
+        ) {
+          e.preventDefault();
+          player.jump();
+        }
+      });
+      window.addEventListener("keyup", (e) => {
+        keys[e.key] = false;
+      });
+      canvas.addEventListener("mousemove", (e) => {
+        const r = canvas.getBoundingClientRect();
+        mouse.x = e.clientX - r.left;
+        mouse.y = e.clientY - r.top;
+      });
+      canvas.addEventListener("mousedown", (e) => {
+        if (e.button === 0) mouse.down = true;
+      });
+      canvas.addEventListener("mouseup", (e) => {
+        if (e.button === 0) mouse.down = false;
+      });
+      canvas.addEventListener("contextmenu", (e) => e.preventDefault());
+
+      // Start game
+      init();
+      requestAnimationFrame(gameLoop);
+    </script>
+  </body>
+</html>

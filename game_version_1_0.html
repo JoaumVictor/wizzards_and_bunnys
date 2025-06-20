@@ -1,0 +1,1152 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>Simple Platformer Wizard</title>
+    <style>
+      body {
+        margin: 0;
+        background-color: #222;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        height: 100vh;
+        overflow: hidden;
+      }
+      canvas {
+        border: 1px solid #555;
+        background-color: #333;
+      }
+      #upgradeScreen {
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        background-color: rgba(0, 0, 0, 0.85);
+        color: white;
+        padding: 20px;
+        border: 2px solid #ccc;
+        border-radius: 10px;
+        display: none; /* Initially hidden */
+        flex-direction: column;
+        align-items: center;
+        font-family: Arial, sans-serif;
+        z-index: 100;
+      }
+      #upgradeScreen h2 {
+        margin-top: 0;
+      }
+      .upgrade-option {
+        background-color: #444;
+        border: 1px solid #777;
+        padding: 10px 15px;
+        margin: 8px 0;
+        cursor: pointer;
+        border-radius: 5px;
+        width: 300px;
+        text-align: left;
+      }
+      .upgrade-option:hover {
+        background-color: #5a5a5a;
+      }
+      .upgrade-name {
+        font-weight: bold;
+        font-size: 1.1em;
+      }
+      .upgrade-desc {
+        font-size: 0.9em;
+        color: #ddd;
+      }
+      #gameOverScreen {
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        background-color: rgba(0, 0, 0, 0.9);
+        color: white;
+        padding: 30px;
+        border: 2px solid #ff4444;
+        border-radius: 10px;
+        display: none; /* Initially hidden */
+        flex-direction: column;
+        align-items: center;
+        font-family: Arial, sans-serif;
+        z-index: 100;
+        text-align: center;
+      }
+      #gameOverScreen button {
+        padding: 10px 20px;
+        font-size: 1em;
+        margin-top: 20px;
+        cursor: pointer;
+        background-color: #559955;
+        border: none;
+        color: white;
+        border-radius: 5px;
+      }
+    </style>
+  </head>
+  <body>
+    <canvas id="gameCanvas"></canvas>
+    <div id="upgradeScreen">
+      <h2>Level Up! Choose an Upgrade:</h2>
+      <div id="upgradeOptionsContainer"></div>
+    </div>
+    <div id="gameOverScreen">
+      <h2>Game Over</h2>
+      <p id="finalScore">Score: 0</p>
+      <p id="finalTime">Time Survived: 0s</p>
+      <button onclick="restartGame()">Restart</button>
+    </div>
+
+    <script>
+      const canvas = document.getElementById("gameCanvas");
+      const ctx = canvas.getContext("2d");
+      const upgradeScreen = document.getElementById("upgradeScreen");
+      const upgradeOptionsContainer = document.getElementById(
+        "upgradeOptionsContainer"
+      );
+      const gameOverScreen = document.getElementById("gameOverScreen");
+      const finalScoreDisplay = document.getElementById("finalScore");
+      const finalTimeDisplay = document.getElementById("finalTime");
+
+      canvas.width = 800;
+      canvas.height = 600;
+
+      const GROUND_HEIGHT = canvas.height - 50;
+      const ENEMY_STOP_Y = canvas.height * 0.65;
+
+      let player, enemies, projectiles, blocks, floatingTexts;
+      let keys = {};
+      let mouse = { x: 0, y: 0, down: false };
+      let score = 0; // Renamed from playerScore to avoid conflict with player.score
+      let gameTime = 0; // Overall game time
+      let enemySpawnTimer = 0;
+      let enemySpawnInterval = 3000; // ms, initial interval
+      let blockSpawnTimer = 0;
+      let blockSpawnInterval = 15000; // ms
+      let gameState = "playing"; // 'playing', 'levelUp', 'gameOver'
+      let gameTimeSurvived = 0; // Seconds the player has survived this run
+      let deltaTime = 0; // Declare deltaTime globally for clarity
+
+      // --- UPGRADES (Same as before) ---
+      const allUpgrades = [
+        {
+          name: "Catalyst",
+          description: "+2 Projectile Damage",
+          apply: (p) => (p.projectileDamage += 2),
+        },
+        {
+          name: "Eyesight",
+          description: "+5% Critical Chance",
+          apply: (p) => (p.critChance = Math.min(1, p.critChance + 0.05)),
+        },
+        {
+          name: "Growth",
+          description: "+20 Max HP",
+          apply: (p) => {
+            p.maxHp += 20;
+            p.hp = Math.min(p.hp + 20, p.maxHp);
+          },
+        },
+        {
+          name: "Impulse",
+          description: "+25% Jump Height",
+          apply: (p) => (p.jumpStrength *= 1.25),
+        },
+        {
+          name: "Renew",
+          description: "Heal to Full HP",
+          apply: (p) => (p.hp = p.maxHp),
+        },
+        {
+          name: "Resist",
+          description: "+5% Defense (damage reduction)",
+          apply: (p) => (p.defense = Math.min(0.75, p.defense + 0.05)),
+        },
+        {
+          name: "Resonance",
+          description: "+15% Attack Speed",
+          apply: (p) =>
+            (p.attackSpeedCooldown = Math.max(
+              50,
+              p.attackSpeedCooldown * 0.85
+            )),
+        },
+        {
+          name: "Souls",
+          description: "1% Chance to Drop Soul (Instant +5 XP) on Kill",
+          apply: (p) => (p.soulChance += 0.01),
+        },
+        {
+          name: "Stability",
+          description: "Projectiles survive 1 more hit",
+          apply: (p) => p.projectileHits++,
+        },
+        {
+          name: "Swift",
+          description: "+15% Movement Speed",
+          apply: (p) => (p.moveSpeed *= 1.15),
+        },
+        {
+          name: "Charge",
+          description: "+20% Projectile Size",
+          apply: (p) => (p.projectileSizeMultiplier += 0.2),
+        },
+        {
+          name: "Cloak",
+          description: "+20% Invulnerability Duration After Hit",
+          apply: (p) => (p.invincibilityDuration *= 1.2),
+        },
+        {
+          name: "Gush",
+          description: "+1 Extra Jump",
+          apply: (p) => p.maxJumps++,
+        },
+        {
+          name: "Leech",
+          description: "Gain 2% Life Steal",
+          apply: (p) => (p.lifeSteal += 0.02),
+        },
+        {
+          name: "Orb",
+          description: "5% Chance to drop a healing orb (+5 HP) on enemy death",
+          apply: (p) => (p.healingOrbChance += 0.05),
+        },
+        {
+          name: "Immortal",
+          description: "1-time revive per run (at 50% HP)",
+          apply: (p) => {
+            if (!p.hasRevive) p.hasRevive = true;
+          },
+        },
+        {
+          name: "Appraisal",
+          description: "Gain 1 extra upgrade choice when leveling up",
+          apply: (p) => p.upgradeChoices++,
+        },
+      ];
+      let availableUpgrades = [...allUpgrades];
+
+      // --- CLASSES (Same as before) ---
+      class Entity {
+        constructor(x, y, width, height, color) {
+          this.x = x;
+          this.y = y;
+          this.width = width;
+          this.height = height;
+          this.color = color;
+          this.vx = 0;
+          this.vy = 0;
+        }
+        draw(ctx) {
+          ctx.fillStyle = this.color;
+          ctx.fillRect(this.x, this.y, this.width, this.height);
+        }
+        update(dt) {
+          // dt is deltaTime in seconds
+          this.x += this.vx * dt;
+          this.y += this.vy * dt;
+        }
+      }
+
+      class Player extends Entity {
+        constructor(x, y) {
+          super(x, y, 20, 40, "#00FFFF");
+          this.staffColor = "#8B4513";
+          this.staffLength = 45;
+          this.staffWidth = 5;
+
+          this.hp = 100;
+          this.maxHp = 100;
+          this.xp = 0;
+          this.maxXp = 100;
+          this.level = 1;
+          this.score = 0;
+
+          this.moveSpeed = 250;
+          this.jumpStrength = 450;
+          this.gravity = 1000;
+          this.onGround = false;
+          this.jumpsLeft = 1;
+          this.maxJumps = 1;
+
+          this.shootCooldown = 0;
+          this.attackSpeedCooldown = 300;
+          this.projectileDamage = 10;
+          this.projectileSpeed = 500;
+          this.projectileSizeMultiplier = 1.0;
+          this.projectileHits = 1;
+
+          this.isInvincible = false;
+          this.invincibilityTimer = 0;
+          this.invincibilityDuration = 500;
+
+          this.critChance = 0.05;
+          this.defense = 0;
+          this.soulChance = 0;
+          this.lifeSteal = 0;
+          this.healingOrbChance = 0;
+          this.hasRevive = false;
+          this.upgradeChoices = 3;
+        }
+
+        update(dtSeconds) {
+          this.vx = 0;
+          if (keys["a"] || keys["A"]) this.vx = -this.moveSpeed;
+          if (keys["d"] || keys["D"]) this.vx = this.moveSpeed;
+
+          this.x += this.vx * dtSeconds;
+
+          if (!this.onGround) {
+            this.vy += this.gravity * dtSeconds;
+          }
+          this.y += this.vy * dtSeconds;
+
+          if (this.y + this.height >= GROUND_HEIGHT) {
+            this.y = GROUND_HEIGHT - this.height;
+            this.vy = 0;
+            this.onGround = true;
+            this.jumpsLeft = this.maxJumps;
+          } else {
+            this.onGround = false;
+          }
+
+          if (this.x < 0) this.x = 0;
+          if (this.x + this.width > canvas.width)
+            this.x = canvas.width - this.width;
+
+          if (this.shootCooldown > 0) this.shootCooldown -= dtSeconds * 1000;
+          if (mouse.down && this.shootCooldown <= 0) {
+            this.shoot();
+            this.shootCooldown = this.attackSpeedCooldown;
+          }
+
+          if (this.isInvincible) {
+            this.invincibilityTimer -= dtSeconds * 1000;
+            if (this.invincibilityTimer <= 0) {
+              this.isInvincible = false;
+            }
+          }
+        }
+
+        draw(ctx) {
+          if (
+            this.isInvincible &&
+            Math.floor(this.invincibilityTimer / 50) % 2 === 0
+          ) {
+            // Flash
+          } else {
+            ctx.fillStyle = this.color;
+            ctx.fillRect(this.x, this.y, this.width, this.height);
+          }
+
+          const staffX = this.x + this.width / 2;
+          const staffY = this.y + this.height / 2;
+          const angle = Math.atan2(mouse.y - staffY, mouse.x - staffX);
+
+          ctx.save();
+          ctx.translate(staffX, staffY);
+          ctx.rotate(angle);
+          ctx.fillStyle = this.staffColor;
+          ctx.fillRect(
+            0,
+            -this.staffWidth / 2,
+            this.staffLength,
+            this.staffWidth
+          );
+          ctx.fillStyle = "#FFD700";
+          ctx.beginPath();
+          ctx.arc(this.staffLength, 0, this.staffWidth, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.restore();
+        }
+
+        jump() {
+          if (this.jumpsLeft > 0) {
+            this.vy = -this.jumpStrength;
+            this.onGround = false;
+            this.jumpsLeft--;
+          }
+        }
+
+        shoot() {
+          const projectileX = this.x + this.width / 2;
+          const projectileY = this.y + this.height / 2;
+          const angle = Math.atan2(
+            mouse.y - projectileY,
+            mouse.x - projectileX
+          );
+          const pvx = Math.cos(angle) * this.projectileSpeed;
+          const pvy = Math.sin(angle) * this.projectileSpeed;
+
+          let damage = this.projectileDamage;
+          let isCrit = false;
+          if (Math.random() < this.critChance) {
+            damage *= 2;
+            isCrit = true;
+          }
+
+          projectiles.push(
+            new Projectile(
+              projectileX,
+              projectileY,
+              pvx,
+              pvy,
+              damage,
+              "player",
+              this.projectileSizeMultiplier,
+              this.projectileHits,
+              isCrit
+            )
+          );
+        }
+
+        takeDamage(amount) {
+          if (this.isInvincible) return;
+
+          const actualDamage = Math.max(1, amount * (1 - this.defense));
+          this.hp -= actualDamage;
+          floatingTexts.push(
+            new FloatingText(
+              this.x + this.width / 2,
+              this.y,
+              `-${actualDamage.toFixed(0)}`,
+              "red"
+            )
+          );
+
+          if (this.hp <= 0) {
+            this.hp = 0;
+            if (this.hasRevive) {
+              this.hp = this.maxHp * 0.5;
+              this.hasRevive = false;
+              floatingTexts.push(
+                new FloatingText(
+                  this.x + this.width / 2,
+                  this.y - 20,
+                  "REVIVED!",
+                  "gold",
+                  2000
+                )
+              );
+              this.isInvincible = true;
+              this.invincibilityTimer = 2000;
+            } else {
+              gameOver();
+            }
+          } else {
+            this.isInvincible = true;
+            this.invincibilityTimer = this.invincibilityDuration;
+          }
+        }
+
+        gainXp(amount) {
+          this.xp += amount;
+          this.score += amount;
+          floatingTexts.push(
+            new FloatingText(
+              this.x + this.width / 2,
+              this.y,
+              `+${amount}XP`,
+              "lightblue",
+              1000
+            )
+          );
+          if (this.xp >= this.maxXp) {
+            this.levelUp();
+          }
+        }
+
+        levelUp() {
+          this.level++;
+          this.xp = 0;
+          this.maxXp = Math.floor(this.maxXp * 1.5);
+          this.hp = this.maxHp;
+          gameState = "levelUp";
+          presentUpgradeChoices();
+          floatingTexts.push(
+            new FloatingText(
+              canvas.width / 2,
+              canvas.height / 2 - 30,
+              `LEVEL UP!`,
+              "gold",
+              2500,
+              36
+            )
+          );
+        }
+
+        heal(amount) {
+          this.hp = Math.min(this.maxHp, this.hp + amount);
+          floatingTexts.push(
+            new FloatingText(
+              this.x + this.width / 2,
+              this.y,
+              `+${amount}HP`,
+              "lime",
+              1000
+            )
+          );
+        }
+      }
+
+      class Projectile extends Entity {
+        constructor(
+          x,
+          y,
+          vx,
+          vy,
+          damage,
+          owner,
+          sizeMultiplier = 1.0,
+          hits = 1,
+          isCrit = false
+        ) {
+          const baseRadius = 5;
+          const radius = baseRadius * sizeMultiplier;
+          super(
+            x - radius,
+            y - radius,
+            radius * 2,
+            radius * 2,
+            owner === "player" ? (isCrit ? "#FFA500" : "#00FF00") : "#FF0000"
+          );
+          this.radius = radius;
+          this.vx = vx;
+          this.vy = vy;
+          this.damage = damage;
+          this.owner = owner;
+          this.hitsLeft = hits;
+          this.isCrit = isCrit;
+        }
+
+        draw(ctx) {
+          ctx.fillStyle = this.color;
+          ctx.beginPath();
+          ctx.arc(
+            this.x + this.radius,
+            this.y + this.radius,
+            this.radius,
+            0,
+            Math.PI * 2
+          );
+          ctx.fill();
+          if (this.isCrit && this.owner === "player") {
+            ctx.strokeStyle = "#FF4500";
+            ctx.lineWidth = 2;
+            ctx.stroke();
+          }
+        }
+
+        update(dtSeconds) {
+          this.x += this.vx * dtSeconds;
+          this.y += this.vy * dtSeconds;
+        }
+
+        onHit() {
+          this.hitsLeft--;
+          return this.hitsLeft <= 0;
+        }
+      }
+
+      class Enemy extends Entity {
+        constructor(x, y) {
+          const sizeMod = Math.floor(gameTimeSurvived / 30);
+          const size = 30 + sizeMod * 2;
+          super(x, y, size, size, "#FF8C00");
+          this.maxHp = 20 + Math.floor(gameTimeSurvived / 15) * 10;
+          this.hp = this.maxHp;
+          this.damage = 5 + Math.floor(gameTimeSurvived / 20) * 2;
+          this.xpValue = 10 + Math.floor(gameTimeSurvived / 30) * 5;
+          this.vy = 50 + Math.floor(gameTimeSurvived / 60) * 10;
+          this.shootCooldown = 0;
+          this.attackSpeed =
+            2500 - Math.min(1500, Math.floor(gameTimeSurvived / 10) * 100);
+          this.hasStoppedFalling = false;
+          this.projectileSpeed = 200 + Math.floor(gameTimeSurvived / 45) * 20;
+        }
+
+        update(dtSeconds) {
+          if (!this.hasStoppedFalling) {
+            this.y += this.vy * dtSeconds;
+            if (this.y + this.height >= ENEMY_STOP_Y) {
+              this.y = ENEMY_STOP_Y - this.height;
+              this.hasStoppedFalling = true;
+              this.vy = 0;
+            }
+          } else {
+            this.shootCooldown -= dtSeconds * 1000;
+            if (this.shootCooldown <= 0 && player.hp > 0) {
+              // Check player.hp > 0
+              this.shoot();
+              this.shootCooldown =
+                this.attackSpeed * (0.8 + Math.random() * 0.4);
+            }
+          }
+        }
+
+        shoot() {
+          const projectileX = this.x + this.width / 2;
+          const projectileY = this.y + this.height / 2;
+          const angle = Math.atan2(
+            player.y + player.height / 2 - projectileY,
+            player.x + player.width / 2 - projectileX
+          );
+          const pvx = Math.cos(angle) * this.projectileSpeed;
+          const pvy = Math.sin(angle) * this.projectileSpeed;
+          projectiles.push(
+            new Projectile(
+              projectileX,
+              projectileY,
+              pvx,
+              pvy,
+              this.damage,
+              "enemy"
+            )
+          );
+        }
+
+        takeDamage(amount, sourcePlayer) {
+          // Added sourcePlayer
+          this.hp -= amount;
+          floatingTexts.push(
+            new FloatingText(
+              this.x + this.width / 2,
+              this.y,
+              `-${amount.toFixed(0)}`,
+              "white"
+            )
+          );
+
+          if (sourcePlayer && sourcePlayer.lifeSteal > 0) {
+            // Check sourcePlayer exists
+            const healedAmount = Math.max(
+              1,
+              Math.floor(amount * sourcePlayer.lifeSteal)
+            );
+            sourcePlayer.heal(healedAmount);
+          }
+
+          if (this.hp <= 0) {
+            if (sourcePlayer) {
+              // Check sourcePlayer exists
+              sourcePlayer.gainXp(this.xpValue);
+              if (Math.random() < sourcePlayer.soulChance) {
+                sourcePlayer.gainXp(5);
+                floatingTexts.push(
+                  new FloatingText(
+                    this.x + this.width / 2,
+                    this.y - 20,
+                    `SOUL!`,
+                    "cyan",
+                    1500
+                  )
+                );
+              }
+              if (Math.random() < sourcePlayer.healingOrbChance) {
+                sourcePlayer.heal(5);
+                floatingTexts.push(
+                  new FloatingText(
+                    this.x + this.width / 2,
+                    this.y - 20,
+                    `ORB!`,
+                    "lightgreen",
+                    1500
+                  )
+                );
+              }
+            }
+            return true;
+          }
+          return false;
+        }
+      }
+
+      class DestructibleBlock extends Entity {
+        constructor(x, y) {
+          super(x, y, 60, 30, "#A0522D");
+          this.maxHp = 50;
+          this.hp = this.maxHp;
+        }
+
+        takeDamage(amount) {
+          this.hp -= amount;
+          const hpPercent = this.hp / this.maxHp;
+          if (hpPercent <= 0) {
+            // Explicitly check <= 0 for destruction
+            return true;
+          } else if (hpPercent < 0.33) {
+            this.color = "#65200c";
+          } else if (hpPercent < 0.66) {
+            this.color = "#823b1c";
+          }
+          return false; // Not destroyed
+        }
+
+        draw(ctx) {
+          super.draw(ctx);
+          ctx.strokeStyle = "rgba(0,0,0,0.5)";
+          ctx.lineWidth = 1;
+          const cracks = Math.floor((1 - this.hp / this.maxHp) * 5);
+          for (let i = 0; i < cracks && this.hp > 0; i++) {
+            // Add this.hp > 0 to avoid drawing on destroyed blocks
+            ctx.beginPath();
+            ctx.moveTo(
+              this.x + Math.random() * this.width,
+              this.y + Math.random() * this.height
+            );
+            ctx.lineTo(
+              this.x + Math.random() * this.width,
+              this.y + Math.random() * this.height
+            );
+            ctx.stroke();
+          }
+        }
+      }
+
+      class FloatingText {
+        constructor(x, y, text, color, duration = 1000, size = 16) {
+          this.x = x;
+          this.y = y;
+          this.text = text;
+          this.color = color;
+          this.duration = duration;
+          this.alpha = 1.0;
+          this.vy = -30;
+          this.size = size;
+        }
+
+        update(dtSeconds) {
+          this.y += this.vy * dtSeconds;
+          this.duration -= dtSeconds * 1000;
+          this.alpha = Math.max(0, this.duration / 1000);
+        }
+
+        draw(ctx) {
+          ctx.fillStyle = this.color;
+          ctx.globalAlpha = this.alpha;
+          ctx.font = `bold ${this.size}px Arial`;
+          ctx.textAlign = "center";
+          ctx.fillText(this.text, this.x, this.y);
+          ctx.textAlign = "left";
+          ctx.globalAlpha = 1.0;
+        }
+      }
+
+      // --- GAME LOGIC ---
+      function init() {
+        player = new Player(canvas.width / 2 - 10, GROUND_HEIGHT - 40);
+        enemies = [];
+        projectiles = [];
+        blocks = [];
+        floatingTexts = [];
+
+        score = 0; // Global score
+        gameTime = 0;
+        gameTimeSurvived = 0;
+        enemySpawnTimer = 0;
+        enemySpawnInterval = 3000;
+        blockSpawnTimer = 0;
+        blockSpawnInterval = 15000;
+
+        // Reset player stats
+        player.hp = 100;
+        player.maxHp = 100;
+        player.xp = 0;
+        player.maxXp = 100;
+        player.level = 1;
+        player.score = 0; // Player's internal score for XP gain logic
+        player.moveSpeed = 250;
+        player.jumpStrength = 450;
+        player.maxJumps = 1;
+        player.attackSpeedCooldown = 300;
+        player.projectileDamage = 10;
+        player.projectileSizeMultiplier = 1.0;
+        player.projectileHits = 1;
+        player.critChance = 0.05;
+        player.defense = 0;
+        player.soulChance = 0;
+        player.invincibilityDuration = 500;
+        player.lifeSteal = 0;
+        player.healingOrbChance = 0;
+        player.hasRevive = false;
+        player.upgradeChoices = 3;
+
+        availableUpgrades = [...allUpgrades];
+
+        gameState = "playing";
+        upgradeScreen.style.display = "none";
+        gameOverScreen.style.display = "none";
+        // lastTime = performance.now(); // REMOVED from here
+        // gameLoop(); // REMOVED from here
+      }
+
+      function restartGame() {
+        init();
+        // The game loop will be re-initiated by the logic in gameLoop if it was stopped.
+        // If gameLoop isn't running, we might need to kickstart it.
+        // However, the current setup assumes gameLoop continues and just respects gameState.
+        // For a full restart after game over, we do need to re-initiate the loop.
+        lastTime = 0; // Reset lastTime for the new game's first frame
+        requestAnimationFrame(gameLoop); // Ensure loop starts again
+      }
+
+      function updateGame(dtSeconds) {
+        // Renamed from update to avoid conflict with Entity.update
+        if (gameState !== "playing") return;
+
+        gameTime += dtSeconds * 1000;
+        gameTimeSurvived += dtSeconds;
+
+        player.update(dtSeconds);
+
+        enemySpawnTimer += dtSeconds * 1000;
+        if (enemySpawnTimer >= enemySpawnInterval) {
+          spawnEnemy();
+          enemySpawnTimer = 0;
+          enemySpawnInterval = Math.max(500, enemySpawnInterval * 0.98);
+        }
+
+        blockSpawnTimer += dtSeconds * 1000;
+        if (blockSpawnTimer >= blockSpawnInterval) {
+          spawnBlock();
+          blockSpawnTimer = 0;
+          blockSpawnInterval = 10000 + Math.random() * 10000;
+        }
+
+        for (let i = enemies.length - 1; i >= 0; i--) {
+          enemies[i].update(dtSeconds);
+          // No need to check for y > canvas.height, they stop
+        }
+
+        for (let i = projectiles.length - 1; i >= 0; i--) {
+          projectiles[i].update(dtSeconds);
+          if (
+            projectiles[i].x < -50 ||
+            projectiles[i].x > canvas.width + 50 ||
+            projectiles[i].y < -50 ||
+            projectiles[i].y > canvas.height + 50
+          ) {
+            projectiles.splice(i, 1);
+          }
+        }
+
+        for (let i = floatingTexts.length - 1; i >= 0; i--) {
+          floatingTexts[i].update(dtSeconds);
+          if (floatingTexts[i].duration <= 0) {
+            floatingTexts.splice(i, 1);
+          }
+        }
+
+        handleCollisions();
+      }
+
+      function spawnEnemy() {
+        const x = Math.random() * (canvas.width - 40) + 5; // Ensure within bounds
+        enemies.push(new Enemy(x, -30));
+      }
+
+      function spawnBlock() {
+        const numBlocks = 1 + Math.floor(Math.random() * 3);
+        const centerX = canvas.width / 2;
+        const startY = ENEMY_STOP_Y - 80 - Math.random() * 50;
+
+        for (let i = 0; i < numBlocks; i++) {
+          const x = centerX - 100 + Math.random() * 200;
+          const y = startY + (Math.random() - 0.5) * 60;
+          let canSpawn = true;
+          for (const b of blocks) {
+            if (Math.abs(b.x - x) < b.width && Math.abs(b.y - y) < b.height) {
+              // More robust check
+              canSpawn = false;
+              break;
+            }
+          }
+          if (canSpawn) {
+            blocks.push(new DestructibleBlock(x, y));
+          }
+        }
+        if (blocks.length > 10) {
+          blocks.splice(0, blocks.length - 10);
+        }
+      }
+
+      function AABBCollision(rect1, rect2) {
+        return (
+          rect1.x < rect2.x + rect2.width &&
+          rect1.x + rect1.width > rect2.x &&
+          rect1.y < rect2.y + rect2.height &&
+          rect1.y + rect1.height > rect2.y
+        );
+      }
+
+      function CircRectCollision(circle, rect) {
+        let testX = circle.x + circle.radius;
+        let testY = circle.y + circle.radius;
+
+        if (testX < rect.x) testX = rect.x;
+        else if (testX > rect.x + rect.width) testX = rect.x + rect.width;
+        if (testY < rect.y) testY = rect.y;
+        else if (testY > rect.y + rect.height) testY = rect.y + rect.height;
+
+        let distX = circle.x + circle.radius - testX;
+        let distY = circle.y + circle.radius - testY;
+        let distance = Math.sqrt(distX * distX + distY * distY);
+
+        return distance <= circle.radius;
+      }
+
+      function handleCollisions() {
+        for (let i = projectiles.length - 1; i >= 0; i--) {
+          const p = projectiles[i];
+          if (!p) continue; // Should not happen if array is managed well
+
+          if (p.owner === "player") {
+            for (let j = enemies.length - 1; j >= 0; j--) {
+              const e = enemies[j];
+              if (CircRectCollision(p, e)) {
+                const enemyDied = e.takeDamage(p.damage, player);
+                if (enemyDied) {
+                  enemies.splice(j, 1);
+                }
+                if (p.onHit()) {
+                  projectiles.splice(i, 1);
+                  break;
+                }
+              }
+            }
+            if (!projectiles[i]) continue; // Projectile might have been removed
+
+            for (let k = blocks.length - 1; k >= 0; k--) {
+              const b = blocks[k];
+              if (CircRectCollision(p, b)) {
+                // Player projectiles do less damage to blocks, or make blocks stronger
+                if (b.takeDamage(p.damage * 0.5)) {
+                  blocks.splice(k, 1);
+                }
+                if (p.onHit()) {
+                  projectiles.splice(i, 1);
+                  break;
+                }
+              }
+            }
+          } else if (p.owner === "enemy") {
+            if (CircRectCollision(p, player)) {
+              player.takeDamage(p.damage);
+              projectiles.splice(i, 1);
+              continue;
+            }
+            if (!projectiles[i]) continue;
+
+            for (let k = blocks.length - 1; k >= 0; k--) {
+              const b = blocks[k];
+              if (CircRectCollision(p, b)) {
+                if (b.takeDamage(p.damage)) {
+                  blocks.splice(k, 1);
+                }
+                projectiles.splice(i, 1);
+                break;
+              }
+            }
+          }
+        }
+      }
+
+      function drawGame() {
+        // Renamed from draw
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+        ctx.fillStyle = "#556B2F";
+        ctx.fillRect(
+          0,
+          GROUND_HEIGHT,
+          canvas.width,
+          canvas.height - GROUND_HEIGHT
+        );
+
+        blocks.forEach((b) => b.draw(ctx));
+        if (player) player.draw(ctx); // Check if player exists
+        enemies.forEach((e) => e.draw(ctx));
+        projectiles.forEach((p) => p.draw(ctx));
+        floatingTexts.forEach((ft) => ft.draw(ctx));
+
+        // UI
+        if (player) {
+          // Check if player exists
+          ctx.fillStyle = "#500";
+          ctx.fillRect(10, 10, 200, 20);
+          ctx.fillStyle = "#0F0";
+          ctx.fillRect(10, 10, (player.hp / player.maxHp) * 200, 20);
+          ctx.strokeStyle = "#FFF";
+          ctx.strokeRect(10, 10, 200, 20);
+          ctx.fillStyle = "#FFF";
+          ctx.font = "14px Arial";
+          ctx.fillText(
+            `${player.hp.toFixed(0)} / ${player.maxHp.toFixed(0)}`,
+            15,
+            25
+          );
+
+          ctx.fillStyle = "#005";
+          ctx.fillRect(10, 35, 200, 15);
+          ctx.fillStyle = "#0AF";
+          ctx.fillRect(10, 35, (player.xp / player.maxXp) * 200, 15);
+          ctx.strokeStyle = "#FFF";
+          ctx.strokeRect(10, 35, 200, 15);
+          ctx.fillStyle = "#FFF";
+          ctx.font = "12px Arial";
+          ctx.fillText(
+            `XP: ${player.xp.toFixed(0)} / ${player.maxXp.toFixed(0)}`,
+            15,
+            47
+          );
+
+          ctx.fillStyle = "#FFF";
+          ctx.font = "16px Arial";
+          ctx.fillText(`Level: ${player.level}`, 10, 70);
+
+          ctx.textAlign = "right";
+          ctx.fillText(`Score: ${player.score}`, canvas.width - 10, 25);
+          ctx.fillText(
+            `Time: ${gameTimeSurvived.toFixed(1)}s`,
+            canvas.width - 10,
+            45
+          );
+          ctx.textAlign = "left";
+        }
+      }
+
+      function presentUpgradeChoices() {
+        upgradeScreen.style.display = "flex";
+        upgradeOptionsContainer.innerHTML = "";
+
+        let choices = [];
+        let tempAvailableUpgrades = [...availableUpgrades];
+
+        if (player.hasRevive) {
+          tempAvailableUpgrades = tempAvailableUpgrades.filter(
+            (upg) => upg.name !== "Immortal"
+          );
+        }
+
+        const numChoices = Math.min(
+          player.upgradeChoices,
+          tempAvailableUpgrades.length
+        );
+        for (let i = 0; i < numChoices; i++) {
+          const randomIndex = Math.floor(
+            Math.random() * tempAvailableUpgrades.length
+          );
+          choices.push(tempAvailableUpgrades[randomIndex]);
+          tempAvailableUpgrades.splice(randomIndex, 1);
+        }
+
+        choices.forEach((upgrade) => {
+          const optionDiv = document.createElement("div");
+          optionDiv.classList.add("upgrade-option");
+
+          const nameSpan = document.createElement("span");
+          nameSpan.classList.add("upgrade-name");
+          nameSpan.textContent = upgrade.name;
+
+          const descSpan = document.createElement("span");
+          descSpan.classList.add("upgrade-desc");
+          descSpan.textContent = upgrade.description;
+
+          optionDiv.appendChild(nameSpan);
+          optionDiv.appendChild(document.createElement("br"));
+          optionDiv.appendChild(descSpan);
+
+          optionDiv.onclick = () => selectUpgrade(upgrade);
+          upgradeOptionsContainer.appendChild(optionDiv);
+        });
+      }
+
+      function selectUpgrade(upgrade) {
+        upgrade.apply(player);
+
+        if (upgrade.name === "Immortal" && player.hasRevive) {
+          // Check if player actually got it
+          availableUpgrades = availableUpgrades.filter(
+            (upg) => upg.name !== "Immortal"
+          );
+        }
+
+        upgradeScreen.style.display = "none";
+        gameState = "playing";
+        lastTime = performance.now(); // Reset lastTime to avoid a large deltaTime jump after pause
+      }
+
+      function gameOver() {
+        gameState = "gameOver";
+        gameOverScreen.style.display = "flex";
+        finalScoreDisplay.textContent = `Score: ${player.score}`; // Use player's internal score or global 'score'
+        finalTimeDisplay.textContent = `Time Survived: ${gameTimeSurvived.toFixed(
+          1
+        )}s`;
+      }
+
+      // --- GAME LOOP ---
+      let lastTime = 0; // Initialize lastTime for the game loop
+
+      function gameLoop(timestamp) {
+        if (!timestamp) timestamp = 0; // Should not happen with RAF, but good failsafe
+
+        if (lastTime === 0) {
+          // First frame
+          lastTime = timestamp;
+          requestAnimationFrame(gameLoop);
+          return;
+        }
+
+        deltaTime = (timestamp - lastTime) / 1000; // time in seconds
+        lastTime = timestamp;
+
+        // Cap deltaTime to prevent massive jumps if tab was inactive
+        deltaTime = Math.min(deltaTime, 0.1); // Max 100ms or 10 FPS equivalent step
+
+        if (gameState === "playing") {
+          updateGame(deltaTime); // Use the renamed update function
+        }
+        drawGame(); // Use the renamed draw function
+
+        if (gameState !== "gameOver") {
+          requestAnimationFrame(gameLoop);
+        }
+      }
+
+      // Event Listeners (Same as before)
+      window.addEventListener("keydown", (e) => {
+        keys[e.key] = true;
+        if (
+          (e.key === " " || e.key === "Spacebar") &&
+          gameState === "playing" &&
+          player
+        ) {
+          // Added player check
+          e.preventDefault();
+          player.jump();
+        }
+      });
+      window.addEventListener("keyup", (e) => {
+        keys[e.key] = false;
+      });
+      canvas.addEventListener("mousemove", (e) => {
+        const rect = canvas.getBoundingClientRect();
+        mouse.x = e.clientX - rect.left;
+        mouse.y = e.clientY - rect.top;
+      });
+      canvas.addEventListener("mousedown", (e) => {
+        if (e.button === 0) mouse.down = true;
+      });
+      canvas.addEventListener("mouseup", (e) => {
+        if (e.button === 0) mouse.down = false;
+      });
+      canvas.addEventListener("contextmenu", (e) => e.preventDefault());
+
+      // Start game
+      init();
+      requestAnimationFrame(gameLoop); // Start the loop correctly
+    </script>
+  </body>
+</html>

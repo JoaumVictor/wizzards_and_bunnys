@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Meu Jogo</title>
+    <style>
+      html,
+      body {
+        margin: 0;
+        padding: 0;
+        width: 100%;
+        height: 100%;
+        font-family: Arial, sans-serif;
+        color: #fff;
+        background-repeat: no-repeat;
+        background-position: center center;
+        background-size: cover;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+      }
+
+      .container {
+        background: rgba(0, 0, 0, 0.5);
+        padding: 2rem;
+        border-radius: 1rem;
+        text-align: center;
+      }
+
+      h1 {
+        margin-bottom: 1rem;
+        font-size: 2rem;
+      }
+
+      button {
+        background: #ff6600;
+        border: none;
+        padding: 1rem 2rem;
+        font-size: 1.2rem;
+        border-radius: 0.5rem;
+        cursor: pointer;
+        color: #fff;
+        transition: background 0.2s ease;
+      }
+
+      button:hover {
+        background: #ff8533;
+      }
+
+      .last-result {
+        margin-top: 2rem;
+        padding: 1rem;
+        background: rgba(0, 0, 0, 0.4);
+        border-radius: 0.5rem;
+        display: none;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <h1>Wizzards and Bunnys - The Cave of XupiXupi</h1>
+      <button id="startButton">Iniciar jogo</button>
+
+      <div class="last-result" id="lastResult"></div>
+    </div>
+
+    <script>
+      // Sorteia entre capa_1, capa_2 e capa_3
+      const backgrounds = ["capa_1.png", "capa_2.png", "capa_3.png"];
+      const randomBg =
+        backgrounds[Math.floor(Math.random() * backgrounds.length)];
+      document.body.style.backgroundImage = `url('/assets/${randomBg}')`;
+
+      const lastResultDiv = document.getElementById("lastResult");
+      const startButton = document.getElementById("startButton");
+
+      // Carrega último resultado
+      const lastGameResult = JSON.parse(localStorage.getItem("lastGameResult"));
+      if (lastGameResult) {
+        lastResultDiv.style.display = "block";
+        lastResultDiv.innerHTML = `
+        <strong>Último Resultado:</strong><br>
+        Placar: ${lastGameResult.score}<br>
+        Tempo sobrevivido: ${lastGameResult.timeSurvived.toFixed(1)}s<br>
+        Data: ${new Date(lastGameResult.date).toLocaleString("pt-BR")}
+      `;
+      }
+
+      startButton.addEventListener("click", () => {
+        window.location.href = "game_final.html";
+      });
+    </script>
+  </body>
+</html>
